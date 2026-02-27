@@ -1,7 +1,7 @@
 {
   "name": "dutch-social-scraper",
   "version": "1.0.0",
-  "description": "Dutch social media monitor scraper for X (Twitter)",
+  "description": "Dutch social media monitor scraper for X",
   "main": "dist/scraper.js",
   "scripts": {
     "build": "tsc",
