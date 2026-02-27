@@ -12,16 +12,11 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Test X login
-        working-directory: scraper
-        env:
-          X_AUTH_TOKEN: ${{ secrets.X_AUTH_TOKEN }}
-          X_CT0:        ${{ secrets.X_CT0 }}
-        run: |
-          echo "Token length: ${#X_AUTH_TOKEN}"
-          echo "CT0 length:   ${#X_CT0}"
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Show structure
+        run: ls -la && ls -la scraper/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -41,12 +36,15 @@ jobs:
         run: npm run build
 
       - name: Debug env
-        working-directory: scraper
         run: |
           echo "URL prefix = ${SUPABASE_URL:0:25}"
           echo "URL length = ${#SUPABASE_URL}"
+          echo "Token length = ${#X_AUTH_TOKEN}"
+          echo "CT0 length = ${#X_CT0}"
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
+          X_AUTH_TOKEN:  ${{ secrets.X_AUTH_TOKEN }}
+          X_CT0:         ${{ secrets.X_CT0 }}
 
       - name: Run scraper
         working-directory: scraper
