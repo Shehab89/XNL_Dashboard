@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -20,25 +20,26 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install dependencies
-        # Removed working-directory: scraper
+      - name: Install Node dependencies
+        working-directory: scraper
         run: npm install
 
-      - name: Install Chromium
-        # Removed working-directory: scraper
+      - name: Install Chromium for Playwright
+        working-directory: scraper
         run: npx playwright install chromium --with-deps
 
-      - name: Run scraper
-        # Removed working-directory: scraper
+      - name: Build TypeScript
+        working-directory: scraper
+        run: npm run build
+
+      - name: Run Scraper
+        working-directory: scraper
         env:
-          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          X_AUTH_TOKEN:              ${{ secrets.X_AUTH_TOKEN }}
-          X_CT0:                     ${{ secrets.X_CT0 }}
-        # Changed from 'npm start' to running ts-node directly (assuming you use it)
-        # or 'npx tsx scraper.ts' depending on your package.json setup. 
-        # If you have a build step, keep it, but adjust accordingly.
-        run: npx tsx scraper.ts 
+          X_AUTH_TOKEN: ${{ secrets.X_AUTH_TOKEN }}
+          X_CT0: ${{ secrets.X_CT0 }}
+        run: npm start
 
   nlp:
     name: "NLP Analysis"
@@ -47,7 +48,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -55,14 +56,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        # Removed working-directory: nlp
+      # NOTE: If your requirements.txt and processor.py are also inside an 'nlp' folder,
+      # you will need to add 'working-directory: nlp' to the steps below, just like we did for the scraper!
+      # If they are in the main repository folder, leave this exactly as is.
+
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run processor
-        # Removed working-directory: nlp
+      - name: Run NLP Processor
         env:
-          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          HUGGINGFACE_API_KEY:       ${{ secrets.HUGGINGFACE_API_KEY }}
+          HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
         run: python processor.py
