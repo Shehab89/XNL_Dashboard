@@ -65,14 +65,13 @@ async function collect(page: any, topic: string, target: number) {
     }
     stale = seen.size === prevSize ? stale + 1 : 0;
     await page.evaluate(() => window.scrollBy(0, 1500));
-    await page.waitForTimeout(2500); // Give X time to load the next batch
+    await page.waitForTimeout(2500); 
   }
   return Array.from(seen.values()).slice(0, target);
 }
 
 async function main() {
   chromium.use(StealthPlugin());
-  // We use headless: true, but give it a bit more leeway for GitHub Actions
   const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
   const context = await browser.newContext({ locale: "nl-NL" });
 
@@ -89,14 +88,12 @@ async function main() {
     try {
       const url = `https://x.com/search?q=${encodeURIComponent(item.query + " lang:nl")}&f=live`;
       
-      // FIX 1: Use domcontentloaded instead of networkidle, and give it 60 seconds
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
       
-      // FIX 2: Wait specifically for the first tweet to appear on the screen
       try {
         await page.waitForSelector('[data-testid="tweet"]', { timeout: 15000 });
       } catch (e) {
-        console.log(` > No tweets loaded for ${item.topic} (might be empty or rate-limited). Skipping.`);
+        console.log(` > No tweets loaded for ${item.topic}. Skipping.`);
         continue;
       }
       
@@ -107,7 +104,6 @@ async function main() {
       console.error(` > Error on ${item.topic}:`, (err as Error).message);
     } finally {
       await page.close();
-      // Brief pause between targets to avoid triggering X's anti-bot defenses
       await new Promise(r => setTimeout(r, 2000)); 
     }
   }
@@ -115,9 +111,23 @@ async function main() {
   await browser.close();
 
   if (allTweets.length > 0) {
-    const { error } = await supabase.from("raw_tweets").upsert(allTweets, { onConflict: "tweet_id" });
-    if (error) console.error("Upload Error:", error);
-    else console.log(`Successfully uploaded ${allTweets.length} tweets to Supabase.`);
+    // --- NEW: Deduplication Logic ---
+    const uniqueTweetsMap = new Map();
+    for (const tweet of allTweets) {
+      if (!uniqueTweetsMap.has(tweet.tweet_id)) {
+        uniqueTweetsMap.set(tweet.tweet_id, tweet);
+      }
+    }
+    const uniqueTweets = Array.from(uniqueTweetsMap.values());
+
+    // Send the unique, duplicate-free array to Supabase
+    const { error } = await supabase.from("raw_tweets").upsert(uniqueTweets, { onConflict: "tweet_id" });
+    
+    if (error) {
+      console.error("Upload Error:", error);
+    } else {
+      console.log(`✅ Successfully uploaded ${uniqueTweets.length} unique tweets to Supabase.`);
+    }
   } else {
     console.log("No tweets collected across all topics.");
   }
