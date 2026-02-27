@@ -52,42 +52,55 @@ def keyword_label(text: str) -> str:
             return label
     return "Overig"
 
-def get_hf_sentiment(text: str):
+def get_hf_sentiment(text: str, retries=3):
     url = "https://api-inference.huggingface.co/models/nlptown/bert-base-multilingual-uncased-sentiment"
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
     
-    try:
-        # Send text to HuggingFace
-        r = requests.post(url, headers=headers, json={"inputs": text[:512]}, timeout=15)
-        
-        # If the model is sleeping, wait 15 seconds for it to load and try again
-        if r.status_code == 503:
-            print("⏳ Model is warming up. Waiting 15s...")
-            time.sleep(15)
-            r = requests.post(url, headers=headers, json={"inputs": text[:512]}, timeout=15)
+    for attempt in range(retries):
+        try:
+            r = requests.post(url, headers=headers, json={"inputs": text[:512]}, timeout=20)
             
-        if r.status_code == 200:
-            data = r.json()
-            if isinstance(data, list) and len(data) > 0:
-                items = data[0] if isinstance(data[0], list) else data
-                best = max(items, key=lambda x: x["score"])
-                label = best["label"].lower()
+            # Success!
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, list) and len(data) > 0:
+                    items = data[0] if isinstance(data[0], list) else data
+                    best = max(items, key=lambda x: x["score"])
+                    label = best["label"].lower()
+                    
+                    if "1 star" in label or "2 star" in label: return "negative", best["score"]
+                    elif "4 star" in label or "5 star" in label: return "positive", best["score"]
+                    else: return "neutral", best["score"]
+            
+            # Model is sleeping, wait longer
+            elif r.status_code == 503:
+                print(f"⏳ Model warming up (Attempt {attempt+1}/{retries}). Waiting 20s...")
+                time.sleep(20)
                 
-                if "1 star" in label or "2 star" in label:
-                    return "negative", best["score"]
-                elif "4 star" in label or "5 star" in label:
-                    return "positive", best["score"]
-                else:
-                    return "neutral", best["score"]
-    except Exception as e:
-        print(f"⚠️ HF API Error: {e}")
-        
+            # Rate limited! Slow down
+            elif r.status_code == 429:
+                print(f"🛑 Rate limited by Hugging Face (Attempt {attempt+1}/{retries})! Waiting 30s...")
+                time.sleep(30)
+                
+            # Authentication or other errors
+            else:
+                print(f"⚠️ HF API Error {r.status_code}: {r.text}")
+                break # Stop retrying if the API key is wrong
+                
+        except requests.exceptions.ReadTimeout:
+            print("⏳ Request timed out. Retrying...")
+            time.sleep(5)
+        except Exception as e:
+            print(f"⚠️ Network Error: {e}")
+            time.sleep(5)
+            
+    # Ultimate fail-safe if all retries fail
     return "neutral", 0.0
 
 def main():
     print("🚀 Starting NLP Processor...")
     
-    # 1. Fetch unprocessed tweets from Supabase
+    # 1. Fetch unprocessed tweets from Supabase (fetching 100 at a time to be safe)
     r = requests.get(f"{SUPABASE_URL}/rest/v1/raw_tweets?processed=eq.false&limit=100", headers=HEADERS)
     if r.status_code != 200:
         print(f"❌ Failed to fetch tweets: {r.text}")
@@ -104,9 +117,12 @@ def main():
     analysis_rows = []
     tweet_ids_to_mark = []
 
-    for tweet in tweets:
+    for index, tweet in enumerate(tweets):
         tweet_id = tweet.get("tweet_id")
         raw_text = tweet.get("text", "")
+        
+        # This print statement helps you track progress in the terminal
+        print(f"[{index + 1}/{len(tweets)}] Analyzing tweet...")
         
         cleaned = clean_text(raw_text)
         sentiment_label, sentiment_score = get_hf_sentiment(cleaned)
@@ -121,8 +137,8 @@ def main():
         })
         tweet_ids_to_mark.append(tweet_id)
         
-        # 0.5s pause between API calls to prevent getting blocked by HuggingFace
-        time.sleep(0.5)
+        # 1.5 second pause between API calls to prevent triggering the 429 Rate Limit
+        time.sleep(1.5)
 
     # 2. Upload analysis back to Supabase
     if analysis_rows:
@@ -139,18 +155,4 @@ def main():
 
     # 3. Mark the original tweets as processed
     if tweet_ids_to_mark:
-        id_list = ",".join(tweet_ids_to_mark)
-        patch_res = requests.patch(
-            f"{SUPABASE_URL}/rest/v1/raw_tweets?tweet_id=in.({id_list})", 
-            headers=HEADERS, 
-            json={"processed": True}
-        )
-        if patch_res.status_code in (200, 201, 204):
-            print(f"✅ Marked {len(tweet_ids_to_mark)} tweets as processed.")
-        else:
-            print(f"❌ Failed to mark tweets as processed: {patch_res.text}")
-
-    print("🎉 NLP Pipeline complete!")
-
-if __name__ == "__main__":
-    main()
+        id_list = ",".join(
