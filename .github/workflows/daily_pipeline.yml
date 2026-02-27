@@ -12,64 +12,73 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Install scraper dependencies
+      - name: Install dependencies
         working-directory: scraper
         run: npm install
 
-      - name: Install Playwright Chromium browser
+      - name: Install Chromium
         working-directory: scraper
         run: npx playwright install chromium --with-deps
 
-      - name: Build TypeScript
+      - name: Build
         working-directory: scraper
         run: npm run build
 
       - name: Debug env
-        run: echo "URL starts with= ${SUPABASE_URL:0:8}"
+        working-directory: scraper
+        run: |
+          echo "URL prefix = ${SUPABASE_URL:0:25}"
+          echo "URL length = ${#SUPABASE_URL}"
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
 
       - name: Run scraper
         working-directory: scraper
         env:
-          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          X_AUTH_TOKEN:               ${{ secrets.X_AUTH_TOKEN }}
-          X_CT0:                      ${{ secrets.X_CT0 }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          X_AUTH_TOKEN:              ${{ secrets.X_AUTH_TOKEN }}
+          X_CT0:                     ${{ secrets.X_CT0 }}
         run: npm start
 
-  nlp_processing:
+  nlp:
     name: "NLP Analysis"
     runs-on: ubuntu-latest
     needs: scrape
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install NLP dependencies
+      - name: Install dependencies
         working-directory: nlp
         run: pip install -r requirements.txt
 
-      - name: Run NLP processor
+      - name: Debug env
+        run: |
+          echo "URL prefix = ${SUPABASE_URL:0:25}"
+          echo "URL length = ${#SUPABASE_URL}"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+
+      - name: Run processor
         working-directory: nlp
         env:
-          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          HUGGINGFACE_API_KEY:        ${{ secrets.HUGGINGFACE_API_KEY }}
-        
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HUGGINGFACE_API_KEY:       ${{ secrets.HUGGINGFACE_API_KEY }}
         run: python processor.py
