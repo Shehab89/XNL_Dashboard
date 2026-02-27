@@ -56,14 +56,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      # NOTE: If your requirements.txt and processor.py are also inside an 'nlp' folder,
-      # you will need to add 'working-directory: nlp' to the steps below, just like we did for the scraper!
-      # If they are in the main repository folder, leave this exactly as is.
-
       - name: Install Python dependencies
+        working-directory: nlp
         run: pip install -r requirements.txt
 
       - name: Run NLP Processor
+        working-directory: nlp
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
