@@ -15,45 +15,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show structure
-        run: ls -la && ls -la scraper/
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Install dependencies
-        working-directory: scraper
+        # Removed working-directory: scraper
         run: npm install
 
       - name: Install Chromium
-        working-directory: scraper
+        # Removed working-directory: scraper
         run: npx playwright install chromium --with-deps
 
-      - name: Build
-        working-directory: scraper
-        run: npm run build
-
-      - name: Debug env
-        run: |
-          echo "URL prefix = ${SUPABASE_URL:0:25}"
-          echo "URL length = ${#SUPABASE_URL}"
-          echo "Token length = ${#X_AUTH_TOKEN}"
-          echo "CT0 length = ${#X_CT0}"
-        env:
-          SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
-          X_AUTH_TOKEN:  ${{ secrets.X_AUTH_TOKEN }}
-          X_CT0:         ${{ secrets.X_CT0 }}
-
       - name: Run scraper
-        working-directory: scraper
+        # Removed working-directory: scraper
         env:
           SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           X_AUTH_TOKEN:              ${{ secrets.X_AUTH_TOKEN }}
           X_CT0:                     ${{ secrets.X_CT0 }}
-        run: npm start
+        # Changed from 'npm start' to running ts-node directly (assuming you use it)
+        # or 'npx tsx scraper.ts' depending on your package.json setup. 
+        # If you have a build step, keep it, but adjust accordingly.
+        run: npx tsx scraper.ts 
 
   nlp:
     name: "NLP Analysis"
@@ -71,18 +56,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        working-directory: nlp
+        # Removed working-directory: nlp
         run: pip install -r requirements.txt
 
-      - name: Debug env
-        run: |
-          echo "URL prefix = ${SUPABASE_URL:0:25}"
-          echo "URL length = ${#SUPABASE_URL}"
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-
       - name: Run processor
-        working-directory: nlp
+        # Removed working-directory: nlp
         env:
           SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
