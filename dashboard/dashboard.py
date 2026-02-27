@@ -1,339 +1,185 @@
-"""
-Dutch Social Monitor — Streamlit Dashboard
-==========================================
-Run locally:
-    pip install streamlit supabase pandas plotly python-dotenv
-    streamlit run dashboard.py
-
-Deploy free:
-    Push to GitHub → Connect to streamlit.io/cloud → Set secrets in app settings
-"""
-
-import os
-from datetime import datetime, timezone, timedelta
-
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
-from supabase import create_client
+from supabase import create_client, Client
+import os
+import re
+from collections import Counter
 
-# ─── Page config ──────────────────────────────────────────────────────────────
+# --- Page Configuration ---
+st.set_page_config(page_title="Dutch Social Monitor", page_icon="🇳🇱", layout="wide")
 
-st.set_page_config(
-    page_title="🇳🇱 Dutch Social Monitor",
-    page_icon="🇳🇱",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# Custom CSS for a professional look
+st.markdown("""
+    <style>
+    .main {background-color: #f8f9fa;}
+    h1, h2, h3 {color: #2c3e50;}
+    .stMetric {background-color: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+    </style>
+""", unsafe_allow_html=True)
 
-# ─── Supabase connection ──────────────────────────────────────────────────────
+st.title("🇳🇱 Dutch Social Monitor Dashboard")
+st.markdown("Real-time sentiment and thematic analysis of Dutch political and social discourse on X.")
 
+# --- 1. Connect to Supabase ---
 @st.cache_resource
-def get_client():
+def init_connection() -> Client:
     url = os.environ.get("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")  # anon key is fine for read
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or st.secrets.get("SUPABASE_SERVICE_ROLE_KEY")
+    
+    if not url or not key:
+        st.error("⚠️ Missing Supabase credentials. Check your .env file or Streamlit Secrets.")
+        st.stop()
     return create_client(url, key)
 
-# ─── Data loaders ─────────────────────────────────────────────────────────────
+supabase = init_connection()
 
-@st.cache_data(ttl=600)  # refresh cache every 10 minutes
-def load_tweets(days_back: int = 7) -> pd.DataFrame:
-    client = get_client()
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
-    resp = (
-        client.table("dashboard_tweets")
-        .select("*")
-        .gte("analysis_date", cutoff[:10])
-        .order("published_at", desc=True)
-        .limit(5000)
-        .execute()
-    )
-    df = pd.DataFrame(resp.data or [])
-    if not df.empty:
-        df["published_at"] = pd.to_datetime(df["published_at"], utc=True)
-        df["date"] = df["published_at"].dt.date
-    return df
-
-
+# --- 2. Fetch & Prepare Data ---
 @st.cache_data(ttl=600)
-def load_topic_summary(days_back: int = 30) -> pd.DataFrame:
-    client = get_client()
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days_back)).date().isoformat()
-    resp = (
-        client.table("daily_topic_summary")
-        .select("*")
-        .gte("date", cutoff)
-        .order("date", desc=True)
-        .execute()
-    )
-    df = pd.DataFrame(resp.data or [])
-    if not df.empty:
-        df["date"] = pd.to_datetime(df["date"]).dt.date
+def load_data():
+    response = supabase.table("dashboard_tweets").select("*").execute()
+    df = pd.DataFrame(response.data)
+    
+    if df.empty:
+        return df
+
+    # Clean data & enforce types
+    df = df.drop_duplicates(subset=['tweet_id'])
+    df['sentiment_label'] = df['sentiment_label'].astype(str).str.lower()
+    
+    # Assign numerical scores for average calculations
+    sentiment_map = {"positive": 1, "neutral": 0, "negative": -1}
+    df["sentiment_value"] = df["sentiment_label"].map(sentiment_map).fillna(0)
+    
+    # Categorize Topics
+    social_list = ["Migratie", "Belasting", "Mensenrechten", "Woning", "Salaris"]
+    party_list = ["PVV", "VVD", "CDA", "GPvda", "D66", "J21", "FvD"]
+    
+    def get_category(topic):
+        if topic in social_list: return "Social Issue"
+        if topic in party_list: return "Political Party"
+        return "Other"
+        
+    df["category"] = df["topic"].apply(get_category)
     return df
 
-# ─── Colour palette ───────────────────────────────────────────────────────────
+df = load_data()
 
-TOPIC_COLORS = {
-    "Salaris":    "#2563EB",
-    "Woningnood": "#DC2626",
-    "Zorg":       "#16A34A",
-    "Klimaat":    "#D97706",
-    "Onderwijs":  "#7C3AED",
-}
+if df.empty:
+    st.warning("No data found in the database yet. Run your GitHub Action pipeline first!")
+    st.stop()
 
-SENTIMENT_COLORS = {
-    "positive": "#22C55E",
-    "negative": "#EF4444",
-    "neutral":  "#94A3B8",
-    "unknown":  "#CBD5E1",
-}
+# --- 3. Executive Summary Metrics ---
+st.subheader("Executive Summary")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Analyzed Tweets", f"{len(df):,}")
+c2.metric("Most Discussed Topic", df['topic'].mode()[0])
+c3.metric("Most Positive Topic", df.groupby('topic')['sentiment_value'].mean().idxmax())
+c4.metric("Most Negative Topic", df.groupby('topic')['sentiment_value'].mean().idxmin())
 
-# ─── Sidebar ──────────────────────────────────────────────────────────────────
+st.markdown("---")
 
-with st.sidebar:
-    st.image("https://flagcdn.com/nl.svg", width=60)
-    st.title("🇳🇱 Dutch Social Monitor")
-    st.caption("Realtime inzicht in Nederlands sociaal debat")
+# --- 4. Comparative Figures (Volume & Avg Sentiment) ---
+st.subheader("Comparative Overview: Volume & Net Sentiment")
+st.markdown("Bars represent tweet volume. Colors represent average sentiment (Green = Positive, Red = Negative).")
 
-    st.divider()
+col_social, col_party = st.columns(2)
 
-    days_back = st.slider("Periode (dagen)", min_value=1, max_value=30, value=7)
-
-    all_topics = ["Salaris", "Woningnood", "Zorg", "Klimaat", "Onderwijs"]
-    selected_topics = st.multiselect(
-        "Filter op onderwerp",
-        options=all_topics,
-        default=all_topics,
+def plot_volume_sentiment(dataframe, title):
+    stats = dataframe.groupby('topic').agg(
+        Volume=('tweet_id', 'count'),
+        Net_Sentiment=('sentiment_value', 'mean')
+    ).reset_index()
+    
+    fig = px.bar(
+        stats, x='topic', y='Volume', color='Net_Sentiment',
+        color_continuous_scale=['#e74c3c', '#95a5a6', '#2ecc71'],
+        range_color=[-1, 1], title=title,
+        labels={'topic': 'Topic', 'Volume': 'Number of Tweets', 'Net_Sentiment': 'Avg Sentiment'}
     )
+    fig.update_layout(xaxis_categoryorder='total descending', plot_bgcolor='rgba(0,0,0,0)')
+    return fig
 
-    sentiment_filter = st.multiselect(
-        "Filter op sentiment",
-        options=["positive", "negative", "neutral", "unknown"],
-        default=["positive", "negative", "neutral"],
-    )
+with col_social:
+    st.plotly_chart(plot_volume_sentiment(df[df['category'] == 'Social Issue'], "Social Issues"), use_container_width=True)
 
-    st.divider()
-    if st.button("🔄 Data verversen"):
-        st.cache_data.clear()
-        st.rerun()
+with col_party:
+    st.plotly_chart(plot_volume_sentiment(df[df['category'] == 'Political Party'], "Political Parties"), use_container_width=True)
 
-    st.caption(f"Bijgewerkt: {datetime.now().strftime('%d %b %Y, %H:%M')}")
+st.markdown("---")
 
-# ─── Load data ────────────────────────────────────────────────────────────────
+# --- 5. Sentiment Distribution Per Topic ---
+st.subheader("Sentiment Distribution Breakdown")
+st.markdown("100% stacked view showing the exact proportion of sentiment per topic.")
 
-tweets_df  = load_tweets(days_back)
-summary_df = load_topic_summary(days_back)
-
-# Apply filters
-if not tweets_df.empty:
-    tweets_df = tweets_df[
-        (tweets_df["topic"].isin(selected_topics)) &
-        (tweets_df["sentiment_label"].isin(sentiment_filter))
-    ]
-
-if not summary_df.empty:
-    summary_df = summary_df[summary_df["topic"].isin(selected_topics)]
-
-# ─── Header KPIs ──────────────────────────────────────────────────────────────
-
-st.title("🇳🇱 Dutch Social Monitor — Dashboard")
-st.markdown(f"**Analyse van de afgelopen {days_back} dag(en) | Geselecteerde onderwerpen: {', '.join(selected_topics)}**")
-
-col1, col2, col3, col4, col5 = st.columns(5)
-
-if not tweets_df.empty:
-    total = len(tweets_df)
-    pos_pct = (tweets_df["sentiment_label"] == "positive").mean() * 100
-    neg_pct = (tweets_df["sentiment_label"] == "negative").mean() * 100
-    avg_likes = tweets_df["likes"].mean()
-    avg_rt    = tweets_df["retweets"].mean()
-else:
-    total = pos_pct = neg_pct = avg_likes = avg_rt = 0
-
-col1.metric("📝 Totaal tweets",   f"{total:,}")
-col2.metric("💚 Positief",         f"{pos_pct:.1f}%")
-col3.metric("❤️ Negatief",         f"{neg_pct:.1f}%")
-col4.metric("❤️ Gem. likes",        f"{avg_likes:.0f}")
-col5.metric("🔁 Gem. retweets",    f"{avg_rt:.0f}")
-
-st.divider()
-
-# ─── Row 1: Sentiment trend + Topic distribution ──────────────────────────────
-
-row1_left, row1_right = st.columns([2, 1])
-
-with row1_left:
-    st.subheader("📈 Dagelijkse sentiment trend")
-
-    if not tweets_df.empty:
-        trend = (
-            tweets_df.groupby(["date", "sentiment_label"])
-            .size()
-            .reset_index(name="count")
-        )
-        fig_trend = px.line(
-            trend,
-            x="date",
-            y="count",
-            color="sentiment_label",
-            color_discrete_map=SENTIMENT_COLORS,
-            labels={"date": "Datum", "count": "Aantal tweets", "sentiment_label": "Sentiment"},
-            markers=True,
-        )
-        fig_trend.update_layout(height=300, margin=dict(t=10, b=10))
-        st.plotly_chart(fig_trend, use_container_width=True)
-    else:
-        st.info("Geen data beschikbaar.")
-
-with row1_right:
-    st.subheader("🗂️ Verdeling per onderwerp")
-
-    if not tweets_df.empty:
-        topic_counts = tweets_df["topic"].value_counts().reset_index()
-        topic_counts.columns = ["topic", "count"]
-        fig_donut = px.pie(
-            topic_counts,
-            names="topic",
-            values="count",
-            color="topic",
-            color_discrete_map=TOPIC_COLORS,
-            hole=0.5,
-        )
-        fig_donut.update_layout(height=300, showlegend=True, margin=dict(t=10, b=10))
-        st.plotly_chart(fig_donut, use_container_width=True)
-    else:
-        st.info("Geen data beschikbaar.")
-
-st.divider()
-
-# ─── Row 2: Top 5 topics + Engagement ─────────────────────────────────────────
-
-row2_left, row2_right = st.columns(2)
-
-with row2_left:
-    st.subheader("🏆 Top 5 sociale thema's vandaag")
-
-    if not summary_df.empty:
-        today_summary = summary_df[summary_df["date"] == summary_df["date"].max()]
-        top5 = (
-            today_summary.groupby("cluster_label")
-            .agg(total_tweets=("tweet_count", "sum"), total_likes=("total_likes", "sum"))
-            .nlargest(5, "total_tweets")
-            .reset_index()
-        )
-        fig_top5 = px.bar(
-            top5,
-            x="total_tweets",
-            y="cluster_label",
-            orientation="h",
-            color="total_likes",
-            color_continuous_scale="Blues",
-            labels={"total_tweets": "Aantal tweets", "cluster_label": "Thema", "total_likes": "Likes"},
-        )
-        fig_top5.update_layout(height=300, margin=dict(t=10, b=10), yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig_top5, use_container_width=True)
-    else:
-        st.info("Nog geen samenvatting beschikbaar.")
-
-with row2_right:
-    st.subheader("📊 Engagement per onderwerp")
-
-    if not tweets_df.empty:
-        eng = (
-            tweets_df.groupby("topic")
-            .agg(avg_likes=("likes", "mean"), avg_retweets=("retweets", "mean"))
-            .reset_index()
-        )
-        fig_eng = go.Figure()
-        fig_eng.add_trace(go.Bar(name="Gem. likes",    x=eng["topic"], y=eng["avg_likes"],    marker_color="#2563EB"))
-        fig_eng.add_trace(go.Bar(name="Gem. retweets", x=eng["topic"], y=eng["avg_retweets"], marker_color="#16A34A"))
-        fig_eng.update_layout(barmode="group", height=300, margin=dict(t=10, b=10))
-        st.plotly_chart(fig_eng, use_container_width=True)
-    else:
-        st.info("Geen data beschikbaar.")
-
-st.divider()
-
-# ─── Row 3: Sentiment heatmap per topic ───────────────────────────────────────
-
-st.subheader("🌡️ Sentiment per onderwerp over tijd")
-
-if not tweets_df.empty:
-    heat_data = (
-        tweets_df.groupby(["date", "topic"])
-        .apply(lambda g: (g["sentiment_label"] == "positive").mean() - (g["sentiment_label"] == "negative").mean())
-        .reset_index(name="sentiment_net")
-    )
-    heat_pivot = heat_data.pivot(index="topic", columns="date", values="sentiment_net")
-    fig_heat = px.imshow(
-        heat_pivot,
-        color_continuous_scale="RdYlGn",
-        zmin=-1, zmax=1,
-        labels={"color": "Net sentiment", "x": "Datum", "y": "Onderwerp"},
-        aspect="auto",
-    )
-    fig_heat.update_layout(height=250, margin=dict(t=10, b=10))
-    st.plotly_chart(fig_heat, use_container_width=True)
-else:
-    st.info("Geen data beschikbaar.")
-
-st.divider()
-
-# ─── Row 4: Influential tweets table ─────────────────────────────────────────
-
-st.subheader("⭐ Meest invloedrijke tweets")
-
-search_query = st.text_input("🔍 Zoek in tweets…", placeholder="bijv. huurprijs, salaris, wachttijd")
-
-if not tweets_df.empty:
-    display_df = tweets_df.copy()
-
-    if search_query:
-        display_df = display_df[
-            display_df["text"].str.contains(search_query, case=False, na=False)
-        ]
-
-    # Influence score = likes + (2 × retweets)
-    display_df["influence_score"] = display_df["likes"] + 2 * display_df["retweets"]
-    top_tweets = (
-        display_df
-        .nlargest(50, "influence_score")
-        [["author", "author_handle", "topic", "text", "likes", "retweets", "sentiment_label", "published_at", "tweet_url"]]
-        .rename(columns={
-            "author":         "Auteur",
-            "author_handle":  "Handle",
-            "topic":          "Onderwerp",
-            "text":           "Tweet",
-            "likes":          "❤️",
-            "retweets":       "🔁",
-            "sentiment_label":"Sentiment",
-            "published_at":   "Datum",
-            "tweet_url":      "Link",
-        })
-    )
-
-    # Truncate long tweets for display
-    top_tweets["Tweet"] = top_tweets["Tweet"].str[:140] + "…"
-
-    st.dataframe(
-        top_tweets,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Link": st.column_config.LinkColumn("🔗 Link"),
-            "Datum": st.column_config.DatetimeColumn("Datum", format="DD/MM/YYYY HH:mm"),
-        },
-        height=400,
-    )
-else:
-    st.info("Geen tweets gevonden voor de geselecteerde filters.")
-
-# ─── Footer ───────────────────────────────────────────────────────────────────
-
-st.divider()
-st.caption(
-    "Dutch Social Monitor • Data scraped from X (Twitter) • "
-    "Sentiment analyse met RobBERT (DTAI-KULeuven) • "
-    "Gebouwd met Streamlit + Supabase"
+dist_df = df.groupby(['topic', 'sentiment_label']).size().reset_index(name='Count')
+fig_dist = px.bar(
+    dist_df, x='topic', y='Count', color='sentiment_label',
+    barmode='stack', barnorm='percent',
+    color_discrete_map={"positive": "#2ecc71", "neutral": "#95a5a6", "negative": "#e74c3c"},
+    labels={'Count': 'Percentage (%)', 'topic': 'Topic', 'sentiment_label': 'Sentiment'}
 )
+fig_dist.update_layout(xaxis_categoryorder='category ascending', plot_bgcolor='rgba(0,0,0,0)')
+st.plotly_chart(fig_dist, use_container_width=True)
+
+st.markdown("---")
+
+# --- 6. NLP Deep Dive: Representative Words ---
+st.subheader("Topic Deep Dive: Representative Themes")
+st.markdown("Select a topic to extract the most frequently used words (excluding basic Dutch stopwords).")
+
+# Dutch stopword list for cleaner keyword extraction
+DUTCH_STOPWORDS = {
+    "de", "en", "van", "ik", "te", "dat", "die", "in", "een", "hij", "het", "niet", 
+    "zijn", "is", "was", "op", "aan", "met", "als", "voor", "had", "er", "maar", "om", 
+    "hem", "dan", "zou", "of", "wat", "mijn", "men", "dit", "zo", "door", "over", "ze", 
+    "zich", "bij", "ook", "tot", "je", "mij", "uit", "der", "daar", "haar", "naar", 
+    "heb", "hoe", "heeft", "hebben", "deze", "u", "want", "nog", "zal", "me", "zij", 
+    "nu", "ge", "geen", "omdat", "iets", "worden", "toch", "al", "waren", "veel", 
+    "meer", "doen", "toen", "moet", "ben", "zonder", "kan", "hun", "dus", "alles", 
+    "onder", "ja", "twee", "laat", "wel", "we", "ons", "wij", "wie", "gaan", "na", 
+    "via", "welke", "steeds", "rt", "https", "t.co"
+}
+
+def extract_top_words(texts, num_words=15):
+    words = []
+    for text in texts:
+        if isinstance(text, str):
+            # Remove URLs and @mentions
+            clean_text = re.sub(r'http\S+|www\.\S+|@\w+', '', text.lower())
+            # Remove punctuation and split
+            tokens = re.findall(r'\b[a-z]{3,}\b', clean_text)
+            words.extend([w for w in tokens if w not in DUTCH_STOPWORDS])
+    return Counter(words).most_common(num_words)
+
+col_select, col_kw_chart = st.columns([1, 2])
+
+with col_select:
+    target_topic = st.selectbox("Choose a Topic:", sorted(df['topic'].unique()))
+    target_df = df[df['topic'] == target_topic]
+    
+    st.write(f"**Total Tweets analyzed for {target_topic}:** {len(target_df)}")
+    st.write(f"**Overall Sentiment:** {'🟢 Positive' if target_df['sentiment_value'].mean() > 0 else '🔴 Negative' if target_df['sentiment_value'].mean() < -0.1 else '⚪ Neutral'}")
+
+with col_kw_chart:
+    top_words = extract_top_words(target_df['text'].dropna())
+    kw_df = pd.DataFrame(top_words, columns=['Word', 'Frequency'])
+    
+    fig_kw = px.bar(
+        kw_df, x='Frequency', y='Word', orientation='h', 
+        title=f"Top Keywords for: {target_topic}",
+        color='Frequency', color_continuous_scale='Blues'
+    )
+    fig_kw.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)')
+    st.plotly_chart(fig_kw, use_container_width=True)
+
+st.markdown("---")
+
+# --- 7. Data Explorer ---
+with st.expander("🔍 View Raw Dataset"):
+    st.dataframe(
+        df[["topic", "category", "sentiment_label", "sentiment_score", "text"]].sort_values(by="sentiment_score", ascending=False),
+        use_container_width=True,
+        hide_index=True
+    )
