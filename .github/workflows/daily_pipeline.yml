@@ -90,26 +90,3 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY:   ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           HUGGINGFACE_API_KEY:         ${{ secrets.HUGGINGFACE_API_KEY }}
         run: python processor.py
-
-  # ─────────────────────────────────────────────────
-  # Job 3: Notify on failure
-  # ─────────────────────────────────────────────────
-  notify_on_failure:
-    name: "🚨 Notify Failure"
-    runs-on: ubuntu-latest
-    needs: [scrape, nlp_processing]
-    if: failure()
-
-    steps:
-      - name: Post failure to Slack (optional)
-        # Replace webhook URL with your own Slack incoming webhook secret
-        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "❌ Dutch Social Monitor pipeline failed! Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
