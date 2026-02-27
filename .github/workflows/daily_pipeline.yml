@@ -32,6 +32,11 @@ jobs:
         working-directory: scraper
         run: npm run build
 
+      - name: Debug env
+        run: echo "URL starts with= ${SUPABASE_URL:0:8}"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+
       - name: Run scraper
         working-directory: scraper
         env:
@@ -66,4 +71,5 @@ jobs:
           SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           HUGGINGFACE_API_KEY:        ${{ secrets.HUGGINGFACE_API_KEY }}
+        
         run: python processor.py
