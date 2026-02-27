@@ -1,194 +1,276 @@
-/**
- * Dutch Social Monitor — X (Twitter) Scraper
- * Rewrote for reliability: simpler auth, better error handling
- */
+"""
+Dutch Social Monitor — NLP Processor
+Pulls unprocessed tweets → sentiment → topic model → writes back to Supabase
+"""
 
-import { chromium } from "playwright-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
-import { createClient } from "@supabase/supabase-js";
-import * as dotenv from "dotenv";
+import os
+import sys
+import time
+import logging
+import re
+from datetime import datetime, timezone
 
-dotenv.config();
+import requests
+from dotenv import load_dotenv
 
-// ── Validate env ──────────────────────────────────────────────────────────────
-const SUPABASE_URL  = process.env.SUPABASE_URL  || "";
-const SUPABASE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const AUTH_TOKEN    = process.env.X_AUTH_TOKEN  || "";
-const CT0           = process.env.X_CT0         || "";
+load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
 
-if (!SUPABASE_URL || !SUPABASE_KEY || !AUTH_TOKEN || !CT0) {
-  console.error("❌ Missing env variables. Required: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, X_AUTH_TOKEN, X_CT0");
-  process.exit(1);
+# ── Validate env ───────────────────────────────────────────────────────────────
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+HF_API_KEY   = os.environ.get("HUGGINGFACE_API_KEY", "").strip()
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    log.error("❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
+    sys.exit(1)
+
+if not HF_API_KEY:
+    log.error("❌ Missing HUGGINGFACE_API_KEY")
+    sys.exit(1)
+
+log.info(f"✅ Env OK — URL prefix: {SUPABASE_URL[:25]}")
+
+# ── Supabase REST helpers (no SDK — avoids version issues) ────────────────────
+HEADERS = {
+    "apikey":        SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type":  "application/json",
+    "Prefer":        "return=minimal",
 }
 
-console.log("✅ Env check passed");
-console.log("   SUPABASE_URL prefix:", SUPABASE_URL.substring(0, 20));
+def sb_get(table: str, params: dict) -> list:
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    r   = requests.get(url, headers=HEADERS, params=params, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
-// ── Config ────────────────────────────────────────────────────────────────────
-const TOPICS: Record<string, string> = {
-  Salaris:    "salarissen loon minimumloon Nederland",
-  Woningnood: "woningnood huurprijs koopwoning Nederland",
-  Zorg:       "zorg zorgkosten ziekenhuis wachttijden",
-  Klimaat:    "klimaat klimaatverandering duurzaamheid",
-  Onderwijs:  "onderwijs lerarentekort studenten Nederland",
-};
+def sb_patch(table: str, params: dict, body: dict) -> None:
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    r   = requests.patch(url, headers={**HEADERS, "Prefer": "return=minimal"}, params=params, json=body, timeout=30)
+    r.raise_for_status()
 
-const TWEETS_PER_TOPIC = 50;
+def sb_upsert(table: str, rows: list, on_conflict: str) -> None:
+    if not rows: return
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    h   = {**HEADERS, "Prefer": f"resolution=merge-duplicates,return=minimal"}
+    r   = requests.post(url, headers=h, json=rows, timeout=60)
+    r.raise_for_status()
 
-// ── Supabase ──────────────────────────────────────────────────────────────────
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface Tweet {
-  tweet_id:      string;
-  topic:         string;
-  text:          string;
-  author:        string;
-  author_handle: string;
-  published_at:  string;
-  likes:         number;
-  retweets:      number;
-  replies:       number;
-  tweet_url:     string;
-  scraped_at:    string;
-  processed:     boolean;
+# ── Dutch stop-words ──────────────────────────────────────────────────────────
+STOPWORDS = {
+    "de","het","een","en","van","is","dat","in","te","zijn","op","aan","met",
+    "voor","als","ook","er","maar","om","bij","nog","die","dit","dan","door",
+    "ze","wat","worden","wel","niet","was","naar","meer","uit","kan","hij",
+    "we","ik","je","hun","hem","haar","u","heeft","hebben","wordt","al","nu",
+    "zo","t","n","m","s","rt","via","amp",
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function buildSearchUrl(query: string): string {
-  const q = encodeURIComponent(`${query} lang:nl`);
-  return `https://x.com/search?q=${q}&src=typed_query&f=live`;
+def clean(text: str) -> str:
+    text = re.sub(r"https?://\S+", " ", text)
+    text = re.sub(r"@\w+", " ", text)
+    text = re.sub(r"#(\w+)", r"\1", text)
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return " ".join(w for w in text.split() if w not in STOPWORDS and len(w) > 2)
+
+# ── HuggingFace sentiment ─────────────────────────────────────────────────────
+HF_MODEL = "nlptown/bert-base-multilingual-uncased-sentiment"
+HF_URL   = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+HF_HDR   = {"Authorization": f"Bearer {HF_API_KEY}"}
+
+LABEL_MAP = {
+    "1 star": "negative", "2 stars": "negative",
+    "3 stars": "neutral",
+    "4 stars": "positive", "5 stars": "positive",
+    "positive": "positive", "negative": "negative", "neutral": "neutral",
+    "pos": "positive", "neg": "negative", "neu": "neutral",
+    "positief": "positive", "negatief": "negative",
 }
 
-function parseCount(label: string): number {
-  const m = (label || "").match(/[\d,]+/);
-  return m ? parseInt(m[0].replace(/,/g, ""), 10) : 0;
+def hf_sentiment_single(text: str) -> dict | None:
+    """Call HF API for a single text — more reliable than batching."""
+    try:
+        r = requests.post(
+            HF_URL,
+            headers=HF_HDR,
+            json={"inputs": text, "options": {"wait_for_model": True}},
+            timeout=30
+        )
+        if r.status_code == 503:
+            log.warning("Model loading, waiting 20s…")
+            time.sleep(20)
+            return hf_sentiment_single(text)
+        if r.status_code != 200:
+            log.warning(f"HF status {r.status_code}: {r.text[:100]}")
+            return None
+        data = r.json()
+        # Response can be [[{label,score},...]] or [{label,score},...]
+        if isinstance(data, list) and data:
+            items = data[0] if isinstance(data[0], list) else data
+            best  = max(items, key=lambda x: x["score"])
+            raw   = best["label"].lower().strip()
+            label = LABEL_MAP.get(raw, "neutral")
+            return {"label": label, "score": round(best["score"], 4)}
+        return None
+    except Exception as e:
+        log.error(f"HF error: {e}")
+        return None
+
+def hf_sentiment(texts: list[str]) -> list[dict | None]:
+    results = []
+    for i, text in enumerate(texts):
+        result = hf_sentiment_single(text[:512])  # truncate to model max
+        results.append(result)
+        if (i + 1) % 10 == 0:
+            log.info(f"  Sentiment: {i+1}/{len(texts)}")
+            time.sleep(0.5)  # gentle rate limiting
+    return results
+
+# ── Simple keyword topic labeller (fallback when BERTopic unavailable) ────────
+TOPIC_KEYWORDS = {
+    "huisvesting":  ["huur","woning","huurprijs","koophuis","woningnood","hypotheek","appartement"],
+    "salaris":      ["salaris","loon","minimumloon","loonsverhoging","inkomen","betaling"],
+    "zorg":         ["zorg","ziekenhuis","wachttijd","huisarts","zorgkosten","medicijn","verpleging"],
+    "klimaat":      ["klimaat","stikstof","duurzaam","co2","energie","warmtepomp","fossiel"],
+    "onderwijs":    ["school","leraar","leerkort","onderwijs","student","studie","universiteit"],
 }
 
-// ── Parse tweets from page ────────────────────────────────────────────────────
-async function parseTweets(page: any, topic: string): Promise<Tweet[]> {
-  const results: Tweet[] = [];
-  const elements = await page.$$('[data-testid="tweet"]');
+def keyword_label(text: str) -> str:
+    t = text.lower()
+    scores = {label: sum(1 for kw in kws if kw in t) for label, kws in TOPIC_KEYWORDS.items()}
+    best = max(scores, key=lambda x: scores[x])
+    return best if scores[best] > 0 else "overig"
 
-  for (const el of elements) {
-    try {
-      const textEl  = await el.$('[data-testid="tweetText"]');
-      const text    = textEl ? (await textEl.innerText()).trim() : "";
-      if (!text) continue;
+# ── Main pipeline ─────────────────────────────────────────────────────────────
+def main():
+    log.info("🚀 Dutch NLP pipeline starting…")
 
-      const nameEl   = await el.$('[data-testid="User-Name"]');
-      const nameText = nameEl ? await nameEl.innerText() : "";
-      const parts    = nameText.split("\n");
-      const author   = parts[0]?.trim() || "";
-      const handle   = (parts[1] || "").replace("@", "").trim();
+    # Reset tweets that were saved as 'unknown' so they get re-analysed
+    try:
+        url, key = SUPABASE_URL, SUPABASE_KEY
+        headers  = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        requests.patch(
+            f"{url}/rest/v1/raw_tweets",
+            headers=headers,
+            params={"processed": "eq.true"},
+            json={"processed": False},
+            timeout=30
+        )
+        log.info("  Reset previously processed tweets for re-analysis")
+    except Exception as e:
+        log.warning(f"  Could not reset tweets: {e}")
 
-      const timeEl   = await el.$("time");
-      const dt       = timeEl ? await timeEl.getAttribute("datetime") : new Date().toISOString();
+    # 1. Fetch unprocessed tweets
+    tweets = sb_get("raw_tweets", {"processed": "eq.false", "order": "scraped_at.desc", "limit": "500"})
+    log.info(f"📥 {len(tweets)} unprocessed tweets")
 
-      const linkEl   = await el.$('a[href*="/status/"]');
-      const href     = linkEl ? await linkEl.getAttribute("href") : "";
-      const tweetId  = href ? href.split("/status/")[1]?.split("?")[0] || "" : "";
-      if (!tweetId) continue;
+    if not tweets:
+        log.info("Nothing to process — exiting.")
+        return
 
-      const likeEl   = await el.$('[data-testid="like"]');
-      const rtEl     = await el.$('[data-testid="retweet"]');
-      const repEl    = await el.$('[data-testid="reply"]');
+    today = datetime.now(timezone.utc).date().isoformat()
 
-      const likes    = parseCount(likeEl    ? await likeEl.getAttribute("aria-label")  || "" : "");
-      const retweets = parseCount(rtEl      ? await rtEl.getAttribute("aria-label")    || "" : "");
-      const replies  = parseCount(repEl     ? await repEl.getAttribute("aria-label")   || "" : "");
+    # 2. Sentiment in batches of 32
+    BATCH = 32
+    analysis_rows = []
+    texts = [clean(t["text"]) for t in tweets]
 
-      results.push({
-        tweet_id:      tweetId,
-        topic,
-        text,
-        author,
-        author_handle: handle,
-        published_at:  dt || new Date().toISOString(),
-        likes,
-        retweets,
-        replies,
-        tweet_url:     href ? `https://x.com${href}` : "",
-        scraped_at:    new Date().toISOString(),
-        processed:     false,
-      });
-    } catch {
-      // skip broken elements
-    }
-  }
-  return results;
-}
+    for i in range(0, len(tweets), BATCH):
+        batch_tweets = tweets[i:i+BATCH]
+        batch_texts  = texts[i:i+BATCH]
+        sentiments   = hf_sentiment(batch_texts)
 
-// ── Scroll and collect ────────────────────────────────────────────────────────
-async function scrollAndCollect(page: any, topic: string, target: number): Promise<Tweet[]> {
-  const seen = new Map<string, Tweet>();
-  let stale  = 0;
+        for j, tweet in enumerate(batch_tweets):
+            s = sentiments[j]
+            label = s["label"] if s else "unknown"
+            score = s["score"] if s else None
 
-  while (seen.size < target && stale < 4) {
-    const prev   = seen.size;
-    const batch  = await parseTweets(page, topic);
-    batch.forEach(t => seen.set(t.tweet_id, t));
-    stale = seen.size === prev ? stale + 1 : 0;
-    await page.evaluate(() => window.scrollBy(0, 1400));
-    await page.waitForTimeout(2500);
-  }
+            analysis_rows.append({
+                "tweet_id":        tweet["tweet_id"],
+                "sentiment_label": label,
+                "sentiment_score": score,
+                "cluster_id":      -1,
+                "cluster_label":   keyword_label(batch_texts[j]),
+                "cleaned_text":    batch_texts[j],
+                "analysis_date":   today,
+            })
 
-  return Array.from(seen.values()).slice(0, target);
-}
+        log.info(f"  Batch {i//BATCH + 1}/{(len(tweets)-1)//BATCH + 1} done")
+        if i + BATCH < len(tweets):
+            time.sleep(1)
 
-// ── Upload ────────────────────────────────────────────────────────────────────
-async function upload(tweets: Tweet[]): Promise<void> {
-  if (!tweets.length) { console.log("  No tweets to upload"); return; }
-  const { error } = await supabase.from("raw_tweets").upsert(tweets, { onConflict: "tweet_id" });
-  if (error) console.error("  Supabase error:", error.message);
-  else       console.log(`  ✅ Uploaded ${tweets.length} tweets`);
-}
+    # 3. Try BERTopic (optional — gracefully skipped if not installed)
+    try:
+        from bertopic import BERTopic
+        from sentence_transformers import SentenceTransformer
+        log.info("🏷️  Running BERTopic…")
+        model  = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+        bt     = BERTopic(embedding_model=model, language="dutch", verbose=False)
+        topics, _ = bt.fit_transform(texts)
+        info   = bt.get_topic_info()
+        for i, row in enumerate(analysis_rows):
+            cid   = int(topics[i])
+            row["cluster_id"] = cid
+            if cid != -1:
+                r = info[info["Topic"] == cid]
+                row["cluster_label"] = r["Name"].values[0] if not r.empty else row["cluster_label"]
+        log.info("  BERTopic done")
+    except ImportError:
+        log.info("  BERTopic not available — using keyword labels")
+    except Exception as e:
+        log.warning(f"  BERTopic failed ({e}) — using keyword labels")
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-async function main() {
-  chromium.use(StealthPlugin());
+    # 4. Write analysis
+    log.info(f"💾 Writing {len(analysis_rows)} analysis rows…")
+    sb_upsert("tweet_analysis", analysis_rows, "tweet_id")
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-blink-features=AutomationControlled"],
-  });
+    # 5. Write daily summary
+    from collections import defaultdict
+    summary_map: dict = defaultdict(lambda: {"tweet_count":0,"total_likes":0,"total_retweets":0,"positive_count":0,"negative_count":0,"scores":[]})
+    for i, row in enumerate(analysis_rows):
+        t   = tweets[i]
+        key = (today, t["topic"], row["cluster_label"])
+        s   = summary_map[key]
+        s["tweet_count"]    += 1
+        s["total_likes"]    += t.get("likes", 0)
+        s["total_retweets"] += t.get("retweets", 0)
+        if row["sentiment_label"] == "positive": s["positive_count"] += 1
+        if row["sentiment_label"] == "negative": s["negative_count"] += 1
+        if row["sentiment_score"]: s["scores"].append(row["sentiment_score"])
 
-  const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    viewport:  { width: 1280, height: 900 },
-    locale:    "nl-NL",
-  });
+    summary_rows = []
+    for (date, topic, label), s in summary_map.items():
+        summary_rows.append({
+            "date":               date,
+            "topic":              topic,
+            "cluster_id":         0,
+            "cluster_label":      label,
+            "tweet_count":        s["tweet_count"],
+            "total_likes":        s["total_likes"],
+            "total_retweets":     s["total_retweets"],
+            "positive_count":     s["positive_count"],
+            "negative_count":     s["negative_count"],
+            "avg_sentiment_score": round(sum(s["scores"])/len(s["scores"]), 4) if s["scores"] else 0,
+        })
 
-  await context.addCookies([
-    { name: "auth_token", value: AUTH_TOKEN, domain: ".x.com", path: "/", httpOnly: true,  secure: true },
-    { name: "ct0",        value: CT0,        domain: ".x.com", path: "/", httpOnly: false, secure: true },
-  ]);
+    log.info(f"📊 Writing {len(summary_rows)} summary rows…")
+    sb_upsert("daily_topic_summary", summary_rows, "date,topic,cluster_label")
 
-  const allTweets: Tweet[] = [];
+    # 6. Mark processed
+    ids = [t["tweet_id"] for t in tweets]
+    # patch in chunks of 100
+    for i in range(0, len(ids), 100):
+        chunk = ids[i:i+100]
+        id_filter = "in.(" + ",".join(chunk) + ")"
+        sb_patch("raw_tweets", {"tweet_id": id_filter}, {"processed": True})
 
-  for (const [topic, query] of Object.entries(TOPICS)) {
-    console.log(`\n🔍 Scraping: ${topic}`);
-    const page = await context.newPage();
-    try {
-      await page.goto(buildSearchUrl(query), { waitUntil: "domcontentloaded", timeout: 60000 });
-      await page.waitForTimeout(3000);
-      await page.waitForSelector('[data-testid="tweet"]', { timeout: 20000 }).catch(() => {
-        console.log(`   ⚠️ No tweets found for ${topic} — cookies may be expired or X is blocking`);
-      });
-      const tweets = await scrollAndCollect(page, topic, TWEETS_PER_TOPIC);
-      console.log(`   Found ${tweets.length} tweets`);
-      allTweets.push(...tweets);
-    } catch (err) {
-      console.error(`   ⚠️ Error on ${topic}:`, (err as Error).message);
-    } finally {
-      await page.close();
-      await new Promise(r => setTimeout(r, 3000));
-    }
-  }
+    # Stats
+    pos = sum(1 for r in analysis_rows if r["sentiment_label"] == "positive")
+    neg = sum(1 for r in analysis_rows if r["sentiment_label"] == "negative")
+    neu = len(analysis_rows) - pos - neg
+    log.info(f"✅ Done! Positive:{pos} Negative:{neg} Neutral:{neu}")
 
-  await browser.close();
-  console.log(`\n📦 Total: ${allTweets.length} tweets`);
-  await upload(allTweets);
-}
-
-main().catch(err => { console.error("Fatal:", err); process.exit(1); });
+if __name__ == "__main__":
+    main()
