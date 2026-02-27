@@ -57,11 +57,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        # Notice: No working-directory! It will look in the main folder.
+        working-directory: nlp
         run: pip install -r requirements.txt
 
       - name: Run NLP Processor
-        # Notice: No working-directory! It will look in the main folder.
+        working-directory: nlp
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
