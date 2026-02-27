@@ -57,13 +57,13 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        working-directory: nlp      # <-- This tells it to look in the nlp folder!
+        # Looks in the root folder, exactly where your requirements.txt is located
         run: pip install -r requirements.txt
 
       - name: Run NLP Processor
-        working-directory: nlp      # <-- This tells it to look in the nlp folder!
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
-        run: python processor.py
+        # Reaches into the nlp folder to execute processor.py
+        run: python nlp/processor.py
