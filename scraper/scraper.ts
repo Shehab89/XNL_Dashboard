@@ -78,7 +78,6 @@ async function collect(page: Page, topic: string, limit: number): Promise<Tweet[
       } catch (e) { /* skip individual tweet errors */ }
     }
 
-    // Fixed scrolling logic: No more external randomInt inside evaluate
     const currentHeight = await page.evaluate(() => {
         window.scrollTo(0, document.body.scrollHeight);
         return document.body.scrollHeight;
@@ -90,8 +89,6 @@ async function collect(page: Page, topic: string, limit: number): Promise<Tweet[
       retries = 0;
     }
     previousHeight = currentHeight;
-    
-    // Wait for content to load
     await page.waitForTimeout(2000);
   }
   return tweets;
@@ -119,14 +116,13 @@ async function main() {
 
     try {
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-      const tweets = await collect(page, item.topic, 100);
+      const tweets = await collect(page, item.topic, 75);
       allTweets = allTweets.concat(tweets);
       console.log(`  Found ${tweets.length} tweets.`);
-    } catch (error) {
+    } catch (error: any) { // ✅ FIXED: Added 'any' type to allow .message access
       console.log(`  Error scraping ${item.topic}: ${error.message}`);
     }
     
-    // Random pause on the server side (safe)
     const pause = Math.floor(Math.random() * 5000) + 5000;
     console.log(`  Pausing ${Math.round(pause/1000)} seconds...`);
     await page.waitForTimeout(pause);
