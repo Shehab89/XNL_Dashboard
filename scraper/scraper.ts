@@ -119,7 +119,7 @@ async function main() {
 
     try {
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-      const tweets = await collect(page, item.topic, 75);
+      const tweets = await collect(page, item.topic, 100);
       allTweets = allTweets.concat(tweets);
       console.log(`  Found ${tweets.length} tweets.`);
     } catch (error) {
