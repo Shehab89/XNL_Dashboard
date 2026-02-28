@@ -34,12 +34,12 @@ const TOPICS = [
 ];
 
 interface Tweet {
-  tweet_id:   string;
-  text:       string;
-  author_id:  string;
-  topic:      string;
-  scraped_at: string;
-  processed:  boolean;
+  tweet_id:      string;
+  text:          string;
+  author_handle: string;
+  topic:         string;
+  scraped_at:    string;
+  processed:     boolean;
 }
 
 async function collect(page: Page, topic: string, limit: number): Promise<Tweet[]> {
@@ -67,14 +67,14 @@ async function collect(page: Page, topic: string, limit: number): Promise<Tweet[
         if (!match) continue;
 
         const tweet_id = match[1];
-        const author_id = href.split("/")[1];
+        const author_handle = href.split("/")[1];
 
         if (!seenIds.has(tweet_id)) {
           seenIds.add(tweet_id);
           tweets.push({
             tweet_id,
-            text:       text.replace(/\n/g, " "),
-            author_id,
+            text:          text.replace(/\n/g, " "),
+            author_handle,
             topic,
             scraped_at: new Date().toISOString(),
             processed:  false,
