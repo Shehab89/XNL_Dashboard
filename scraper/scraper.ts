@@ -1,5 +1,4 @@
-import { chromium } from "playwright-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { chromium, Page } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import * as dotenv from "dotenv";
 
@@ -7,129 +6,161 @@ dotenv.config();
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const AUTH_TOKEN   = process.env.X_AUTH_TOKEN || "";
-const CT0          = process.env.X_CT0 || "";
+const X_AUTH_TOKEN = process.env.X_AUTH_TOKEN || "";
+const X_CT0 = process.env.X_CT0 || "";
 
-if (!SUPABASE_URL || !SUPABASE_KEY || !AUTH_TOKEN || !CT0) {
-  console.error("Missing environment variables.");
+if (!SUPABASE_URL || !SUPABASE_KEY || !X_AUTH_TOKEN || !X_CT0) {
+  console.error("Missing required environment variables.");
   process.exit(1);
 }
 
+console.log("ENV OK - URL:", SUPABASE_URL.substring(0, 25));
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const TARGETS = [
-  // Group 1: Social Topics
-  { topic: "Migratie", category: "Social", query: "migratie OR asielzoekers OR immigratie" },
-  { topic: "Belasting", category: "Social", query: "belasting OR btw OR belastingdienst" },
-  { topic: "Mensenrechten", category: "Social", query: "mensenrechten OR discriminatie OR gelijkheid" },
-  { topic: "Woning", category: "Social", query: "woningnood OR huurmarkt OR koopwoning" },
-  { topic: "Salaris", category: "Social", query: "salaris OR minimumloon OR cao" },
-  // Group 2: Parties
-  { topic: "PVV", category: "Party", query: "PVV OR Geert Wilders" },
-  { topic: "VVD", category: "Party", query: "VVD OR Dilan Yesilgoz" },
-  { topic: "CDA", category: "Party", query: "CDA OR Henri Bontenbal" },
-  { topic: "GPvda", category: "Party", query: "GroenLinks-PvdA OR Frans Timmermans" },
-  { topic: "D66", category: "Party", query: "D66 OR Rob Jetten" },
-  { topic: "J21", category: "Party", query: "JA21 OR Joost Eerdmans" },
-  { topic: "FvD", category: "Party", query: "FvD OR Thierry Baudet" }
+const TOPICS = [
+  { topic: "Migratie",      query: "migratie OR asiel OR immigratie OR asielzoeker" },
+  { topic: "Belasting",     query: "belasting OR toeslagen OR btw OR fiscus" },
+  { topic: "Mensenrechten", query: "mensenrechten OR discriminatie OR racisme" },
+  { topic: "Woning",        query: "woningnood OR huurwoning OR koopwoning OR hypotheek" },
+  { topic: "Salaris",       query: "salaris OR minimumloon OR cao OR inkomen" },
+  { topic: "PVV",           query: "PVV OR Wilders" },
+  { topic: "VVD",           query: "VVD OR Yesilgoz" },
+  { topic: "CDA",           query: "CDA OR Bontenbal" },
+  { topic: "GPvda",         query: "GroenLinks OR PvdA OR Timmermans" },
+  { topic: "D66",           query: "D66 OR Jetten" },
+  { topic: "J21",           query: "JA21 OR Eerdmans" },
+  { topic: "FvD",           query: "FvD OR Baudet" }
 ];
 
-async function collect(page: any, topic: string, target: number) {
-  const seen = new Map();
-  let stale = 0;
-  
-  while (seen.size < target && stale < 4) {
-    const prevSize = seen.size;
-    const els = await page.$$('[data-testid="tweet"]');
-    
-    for (const el of els) {
+interface Tweet {
+  tweet_id:   string;
+  text:       string;
+  author_id:  string;
+  topic:      string;
+  scraped_at: string;
+  processed:  boolean;
+}
+
+async function collect(page: Page, topic: string, limit: number): Promise<Tweet[]> {
+  const tweets: Tweet[] = [];
+  const seenIds = new Set<string>();
+  let previousHeight = 0;
+  let retries = 0;
+
+  while (tweets.length < limit && retries < 4) {
+    const articles = await page.$$('article[data-testid="tweet"]');
+
+    for (const article of articles) {
+      if (tweets.length >= limit) break;
       try {
-        const textEl = await el.$('[data-testid="tweetText"]');
-        const text = textEl ? await textEl.innerText() : "";
-        if (!text) continue;
+        const textEl = await article.$('div[data-testid="tweetText"]');
+        if (!textEl) continue;
+        const text = await textEl.innerText();
 
-        const linkEl = await el.$('a[href*="/status/"]');
-        const href = linkEl ? await linkEl.getAttribute("href") : "";
-        const tweetId = href ? href.split("/status/")[1].split("?")[0] : "";
-        
-        if (!tweetId || seen.has(tweetId)) continue;
+        const linkEl = await article.$('a[href*="/status/"]');
+        if (!linkEl) continue;
+        const href = await linkEl.getAttribute("href");
+        if (!href) continue;
 
-        seen.set(tweetId, {
-          tweet_id: tweetId,
-          topic: topic,
-          text: text.trim(),
-          scraped_at: new Date().toISOString(),
-          processed: false
-        });
-      } catch (e) { /* ignore single tweet error */ }
+        const match = href.match(/status\/(\d+)/);
+        if (!match) continue;
+
+        const tweet_id = match[1];
+        const author_id = href.split("/")[1];
+
+        if (!seenIds.has(tweet_id)) {
+          seenIds.add(tweet_id);
+          tweets.push({
+            tweet_id,
+            text:       text.replace(/\n/g, " "),
+            author_id,
+            topic,
+            scraped_at: new Date().toISOString(),
+            processed:  false,
+          });
+        }
+      } catch (e) {
+        // skip broken elements
+      }
     }
-    stale = seen.size === prevSize ? stale + 1 : 0;
-    await page.evaluate(() => window.scrollBy(0, 1500));
-    await page.waitForTimeout(2500); 
+
+    const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+    if (currentHeight === previousHeight) {
+      retries++;
+      await page.waitForTimeout(2000);
+    } else {
+      retries = 0;
+    }
+    previousHeight = currentHeight;
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(1500);
   }
-  return Array.from(seen.values()).slice(0, target);
+
+  return tweets;
 }
 
 async function main() {
-  chromium.use(StealthPlugin());
+  console.log("Starting Dutch Social Scraper...");
+
+  // Shuffle topics so different ones get priority on partial runs
+  TOPICS.sort(() => Math.random() - 0.5);
+
   const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
-  const context = await browser.newContext({ locale: "nl-NL" });
+  const context = await browser.newContext({
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    locale: "nl-NL",
+  });
 
   await context.addCookies([
-    { name: "auth_token", value: AUTH_TOKEN, domain: ".x.com", path: "/", secure: true },
-    { name: "ct0", value: CT0, domain: ".x.com", path: "/", secure: true }
+    { name: "auth_token", value: X_AUTH_TOKEN, domain: ".x.com", path: "/", httpOnly: true,  secure: true },
+    { name: "ct0",        value: X_CT0,        domain: ".x.com", path: "/", httpOnly: false, secure: true },
   ]);
 
-  let allTweets: any[] = [];
+  const page = await context.newPage();
+  let allTweets: Tweet[] = [];
+  const TWEETS_PER_TOPIC = 75;
 
-  for (const item of TARGETS) {
-    console.log(`[Scraping] ${item.topic}`);
-    const page = await context.newPage();
+  for (const item of TOPICS) {
+    console.log("Scraping:", item.topic);
+    const encodedQuery = encodeURIComponent(item.query + " lang:nl");
+    const url = "https://x.com/search?q=" + encodedQuery + "&src=typed_query&f=live";
+
     try {
-      const url = `https://x.com/search?q=${encodeURIComponent(item.query + " lang:nl")}&f=live`;
-      
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-      
-      try {
-        await page.waitForSelector('[data-testid="tweet"]', { timeout: 15000 });
-      } catch (e) {
-        console.log(` > No tweets loaded for ${item.topic}. Skipping.`);
-        continue;
+      await page.waitForTimeout(3000);
+      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15000 });
+
+      const tweets = await collect(page, item.topic, TWEETS_PER_TOPIC);
+
+      if (tweets.length === 0) {
+        console.log("  No tweets for", item.topic);
+      } else {
+        console.log("  Found", tweets.length, "tweets for", item.topic);
+        allTweets = allTweets.concat(tweets);
       }
-      
-      const tweets = await collect(page, item.topic, 160);
-      console.log(` > Found ${tweets.length} tweets for ${item.topic}`);
-      allTweets.push(...tweets);
-    } catch (err) {
-      console.error(` > Error on ${item.topic}:`, (err as Error).message);
-    } finally {
-      await page.close();
-      await new Promise(r => setTimeout(r, 2000)); 
+    } catch (error) {
+      console.log("  Skipping", item.topic, "-", (error as Error).message.split("\n")[0]);
     }
+
+    await page.waitForTimeout(3000);
   }
 
   await browser.close();
 
-  if (allTweets.length > 0) {
-    // --- NEW: Deduplication Logic ---
-    const uniqueTweetsMap = new Map();
-    for (const tweet of allTweets) {
-      if (!uniqueTweetsMap.has(tweet.tweet_id)) {
-        uniqueTweetsMap.set(tweet.tweet_id, tweet);
-      }
-    }
-    const uniqueTweets = Array.from(uniqueTweetsMap.values());
+  if (allTweets.length === 0) {
+    console.log("No tweets collected - cookies may be expired.");
+    return;
+  }
 
-    // Send the unique, duplicate-free array to Supabase
-    const { error } = await supabase.from("raw_tweets").upsert(uniqueTweets, { onConflict: "tweet_id" });
-    
-    if (error) {
-      console.error("Upload Error:", error);
-    } else {
-      console.log(`✅ Successfully uploaded ${uniqueTweets.length} unique tweets to Supabase.`);
-    }
+  const { error } = await supabase
+    .from("raw_tweets")
+    .upsert(allTweets, { onConflict: "tweet_id", ignoreDuplicates: true });
+
+  if (error) {
+    console.error("Upload error:", error.message);
   } else {
-    console.log("No tweets collected across all topics.");
+    console.log("Uploaded", allTweets.length, "tweets to Supabase.");
   }
 }
 
