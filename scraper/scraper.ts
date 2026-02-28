@@ -97,7 +97,7 @@ async function main() {
         continue;
       }
       
-      const tweets = await collect(page, item.topic, 40);
+      const tweets = await collect(page, item.topic, 160);
       console.log(` > Found ${tweets.length} tweets for ${item.topic}`);
       allTweets.push(...tweets);
     } catch (err) {
