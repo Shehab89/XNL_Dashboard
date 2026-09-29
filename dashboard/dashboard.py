@@ -6,6 +6,8 @@ import os
 import re
 from collections import Counter
 
+from streamlit.errors import StreamlitSecretNotFoundError
+
 # --- Page Configuration ---
 st.set_page_config(page_title="Dutch Social Monitor", page_icon="nl", layout="wide")
 
@@ -24,14 +26,24 @@ st.markdown("Real-time sentiment and thematic analysis of Dutch political and so
 import requests as req
 
 def get_creds():
-    url = os.environ.get("SUPABASE_URL") or st.secrets.get("SUPABASE_URL", "")
-    key = os.environ.get("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY", "")
+    def secret(name):
+        """Return an optional Streamlit secret without requiring a local file."""
+        try:
+            return st.secrets.get(name, "")
+        except StreamlitSecretNotFoundError:
+            return ""
+
+    url = os.environ.get("SUPABASE_URL") or secret("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY") or secret("SUPABASE_KEY")
     return url.strip(), key.strip()
 
 def sb_fetch(table, params=None):
     url, key = get_creds()
     if not url or not key:
-        st.error("Missing SUPABASE_URL or SUPABASE_KEY in secrets.")
+        st.error(
+            "Missing Supabase credentials. Set `SUPABASE_URL` and `SUPABASE_KEY` "
+            "as environment variables or in `.streamlit/secrets.toml`."
+        )
         st.stop()
     headers = {"apikey": key, "Authorization": "Bearer " + key}
     r = req.get(url + "/rest/v1/" + table, headers=headers, params=params or {}, timeout=30)

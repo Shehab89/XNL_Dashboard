@@ -1,0 +1,4 @@
+# Local credentials
+.env
+.streamlit/secrets.toml
+__pycache__/
