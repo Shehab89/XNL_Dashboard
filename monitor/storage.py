@@ -70,7 +70,15 @@ class SupabaseStore:
 
     def __init__(self, url, key):
         self.base = url.rstrip("/") + "/rest/v1/" + self.table
-        self.headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        # `Http` uses a browser-like user agent for news sources.  Supabase
+        # deliberately rejects secret keys accompanied by a browser user
+        # agent, so override it for server-to-server database requests.
+        self.headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "User-Agent": "DutchPoliticalMediaMonitor/2.0 (GitHub Actions)",
+        }
         self.http = Http(pause=0)
 
     def _request(self, method, params=None, json=None, extra=None):
