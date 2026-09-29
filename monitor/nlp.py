@@ -135,24 +135,27 @@ def choose_backend():
 
 
 def score_sentiment(texts, backend=None, http=None):
-    """Return [(score, label), ...] for texts, falling back to the lexicon if a model backend fails."""
-    backend = backend or choose_backend()
+    """Return ([(score, label), ...], backend used).
+
+    Tries the chosen backend first, then the Hugging Face API (if a key is set), then the lexicon.
+    """
+    first = backend or choose_backend()
+    chain = [first] + (["api"] if first == "local" and env("HUGGINGFACE_API_KEY") else []) + ["lexicon"]
     model = env("SENTIMENT_MODEL", DEFAULT_MODEL)
     short = [t[:1000] for t in texts]
-    try:
-        if backend == "local":
-            scored = _score_local(short, model)
-        elif backend == "api":
-            from .common import Http
+    for name in dict.fromkeys(chain):
+        if name == "lexicon":
+            break
+        try:
+            if name == "local":
+                scored = _score_local(short, model)
+            else:
+                from .common import Http
 
-            scored = _score_api(short, model, env("HUGGINGFACE_API_KEY"), http or Http(pause=0))
-        else:
-            scored = None
-        if scored is not None:
-            return [(round(float(s), 3), label_of(float(s))) for s, _ in scored], backend
-    except Exception as exc:
-        log.warning("Sentiment backend '%s' failed (%s: %s); using the lexicon instead.",
-                    backend, type(exc).__name__, exc)
+                scored = _score_api(short, model, env("HUGGINGFACE_API_KEY"), http or Http(pause=0))
+            return [(round(float(s), 3), label_of(float(s))) for s, _ in scored], name
+        except Exception as exc:
+            log.warning("Sentiment backend '%s' failed (%s: %s); trying the next one.", name, type(exc).__name__, exc)
     return [(round(s, 3), label_of(s)) for s in map(lexicon_score, short)], "lexicon"
 
 

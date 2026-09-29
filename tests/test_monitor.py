@@ -276,3 +276,11 @@ def test_local_model_backend(monkeypatch):
     monkeypatch.setattr(nlp, "_local_pipeline", lambda model: fake)
     scores, used = nlp.score_sentiment(["a", "b"], backend="local")
     assert used == "local" and scores == [(0.7, "positive"), (0.7, "positive")]
+
+
+def test_local_failure_uses_api_before_lexicon(monkeypatch):
+    monkeypatch.setenv("HUGGINGFACE_API_KEY", "hf_test")
+    monkeypatch.setattr(nlp, "_score_local", lambda *a: (_ for _ in ()).throw(OSError("model download failed")))
+    monkeypatch.setattr(nlp, "_score_api", lambda texts, *a: [(-0.5, "negative") for _ in texts])
+    scores, used = nlp.score_sentiment(["x"], backend="local")
+    assert used == "api" and scores == [(-0.5, "negative")]
