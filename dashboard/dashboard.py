@@ -98,7 +98,7 @@ if "topic" in df.columns:
         labels={"topic": "Topic", "Volume": "Tweets", "Net_Sentiment": "Avg Sentiment"}
     )
     fig.update_layout(xaxis_categoryorder="total descending", plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 st.markdown("---")
 
@@ -108,13 +108,12 @@ st.subheader("Sentiment Distribution per Topic")
 if "topic" in df.columns and "sentiment_label" in df.columns:
     dist = df.groupby(["topic", "sentiment_label"]).size().reset_index(name="Count")
     fig2 = px.bar(
-        dist, x="topic", y="Count", color="sentiment_label",
-        barmode="stack", barnorm="percent",
+        dist, x="topic", y="Count", color="sentiment_label", barmode="stack",
         color_discrete_map={"positive": "#2ecc71", "neutral": "#95a5a6", "negative": "#e74c3c"},
         labels={"Count": "Percentage (%)", "topic": "Topic", "sentiment_label": "Sentiment"}
     )
-    fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig2, use_container_width=True)
+    fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)", barnorm="percent")
+    st.plotly_chart(fig2, width="stretch")
 
 st.markdown("---")
 
@@ -160,7 +159,7 @@ if "topic" in df.columns:
             color="Frequency", color_continuous_scale="Blues"
         )
         fig3.update_layout(yaxis={"categoryorder": "total ascending"}, plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width="stretch")
 
 st.markdown("---")
 
@@ -177,7 +176,7 @@ if "published_at" in df.columns and "sentiment_label" in df.columns:
         labels={"date": "Date", "count": "Tweets", "sentiment_label": "Sentiment"}
     )
     fig4.update_layout(plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig4, width="stretch")
 
 st.markdown("---")
 
@@ -186,7 +185,7 @@ with st.expander("View Raw Dataset"):
     cols = [c for c in ["topic","sentiment_label","sentiment_score","text","author","published_at"] if c in df.columns]
     st.dataframe(
         df[cols].sort_values("sentiment_score", ascending=False) if "sentiment_score" in df.columns else df[cols],
-        use_container_width=True,
+        width="stretch",
         hide_index=True
     )
 
