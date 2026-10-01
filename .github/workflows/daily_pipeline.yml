@@ -61,6 +61,7 @@ jobs:
       - name: Run X scraper
         if: env.X_AUTH_TOKEN != ''
         continue-on-error: true      # X problems must never block the other sources
+        timeout-minutes: 25          # a hung browser must not eat the whole job
         run: |
           python -m monitor.pipeline queries > scraper/queries.json
           cd scraper

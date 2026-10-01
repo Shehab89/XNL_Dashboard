@@ -26,6 +26,9 @@ const PER_QUERY = Number(process.env.X_PER_QUERY || 40);
 const SCRAPER_DIR = path.basename(__dirname) === "dist" ? path.join(__dirname, "..") : __dirname;
 const OUT = path.join(SCRAPER_DIR, "x_items.json");
 const QUERIES = path.join(SCRAPER_DIR, "queries.json");
+// Hard stop so X can never hold up the rest of the pipeline (the workflow step has its own timeout too).
+const MAX_RUNTIME_MS = Number(process.env.X_MAX_MINUTES || 15) * 60_000;
+const MAX_SCROLLS = 25;
 // Headless Chromium announces itself as "HeadlessChrome", which X refuses to serve timelines to.
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
@@ -55,8 +58,9 @@ async function collect(page: Page, limit: number): Promise<XItem[]> {
   const seen = new Set<string>();
   let previousHeight = 0;
   let stuck = 0;
+  let scrolls = 0;
 
-  while (items.length < limit && stuck < 4) {
+  while (items.length < limit && stuck < 4 && scrolls++ < MAX_SCROLLS) {
     for (const article of await page.$$('article[data-testid="tweet"]')) {
       if (items.length >= limit) break;
       try {
@@ -119,7 +123,12 @@ async function main() {
   }
   console.log(`X session OK (${page.url()})`);
 
+  const deadline = Date.now() + MAX_RUNTIME_MS;
   for (const q of queries.sort(() => Math.random() - 0.5)) {
+    if (Date.now() > deadline) {
+      console.log("X time budget used up: stopping with the posts collected so far.");
+      break;
+    }
     const terms = q.terms.map((t) => (t.includes(" ") ? `"${t}"` : t)).join(" OR ");
     const url = `https://x.com/search?q=${encodeURIComponent(`(${terms}) lang:nl`)}&src=typed_query&f=live`;
     try {
