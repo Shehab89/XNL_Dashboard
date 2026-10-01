@@ -259,8 +259,13 @@ def resolve_youtube_channel(http, ref):
     """A channel ID (UC...) as is; an @handle is looked up on the channel page. None when it cannot be found."""
     if re.fullmatch(r"UC[\w-]{22}", ref):
         return ref
-    page = http.get(f"https://www.youtube.com/{ref if ref.startswith('@') else '@' + ref}")
-    match = _CHANNEL_ID.search(page or "")
+    url = f"https://www.youtube.com/{ref if ref.startswith('@') else '@' + ref}"
+    try:  # direct request: a wrong handle (404) must not make Http skip the YouTube feeds
+        resp = http.session.get(url, timeout=25)
+        page = resp.text if resp.status_code == 200 else ""
+    except Exception:
+        page = ""
+    match = _CHANNEL_ID.search(page)
     if not match:
         log.warning("YouTube channel %s not found (check the handle in config/sources.yaml)", ref)
     return match.group(1) if match else None

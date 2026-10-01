@@ -54,6 +54,10 @@ class LocalStore:
         df = self._read()
         return df[df["published_at"] >= pd.Timestamp(_cutoff(days))].reset_index(drop=True)
 
+    def llm_done_ids(self, ids):
+        df = self._read()
+        return set(df.loc[df["analysed_by"] == "llm", "id"]) & set(ids)
+
     def prune(self, days):
         df = self._read()
         keep = df[df["published_at"] >= pd.Timestamp(_cutoff(days))]
@@ -106,6 +110,17 @@ class SupabaseStore:
                 break
             offset += page
         return to_frame(rows)
+
+    def llm_done_ids(self, ids, chunk=150):
+        """Which of these ids the LLM already labelled (so they are not analysed and paid for again)."""
+        found = set()
+        ids = list(ids)
+        for i in range(0, len(ids), chunk):
+            quoted = ",".join('"' + x.replace('"', '') + '"' for x in ids[i:i + chunk])
+            rows = self._request("GET", params={"select": "id", "id": f"in.({quoted})",
+                                                "analysed_by": "eq.llm"}).json()
+            found |= {r["id"] for r in rows}
+        return found
 
     def prune(self, days):
         self._request("DELETE", params={"published_at": f"lt.{_cutoff(days)}"})

@@ -134,6 +134,26 @@ def test_gemini_client_request_shape(monkeypatch):
     assert sent["body"]["generationConfig"]["responseJsonSchema"] == {"type": "object"}
 
 
+def test_gemini_daily_quota_stops_the_run(monkeypatch):
+    monkeypatch.setenv("LLM_BATCH_SIZE", "1")
+    monkeypatch.setenv("LLM_WORKERS", "1")
+    calls = []
+
+    class Client:
+        def generate(self, *a):
+            calls.append(1)
+            raise llm.QuotaExhausted("Gemini daily quota used up")
+
+    items = [{"text": str(n), "platform": "x"} for n in range(5)]
+    assert llm.classify(items, PARTIES, ISSUES, client=Client(), model="m") == [None] * 5
+    assert len(calls) == 1          # no more calls after the daily quota is gone
+
+
+def test_retry_delay_parsing():
+    assert llm._retry_delay('"retryDelay": "40s"', 5) == 41.0
+    assert llm._retry_delay("no hint", 5) == 5
+
+
 def test_analyse_uses_llm_then_falls_back(tagger, monkeypatch):
     items = [make_item("news", "NOS", "Wilders over huurprijzen", url="u1"),
              make_item("news", "NOS", "Wilders en de zorg: een geweldig plan", url="u2"),
@@ -228,10 +248,16 @@ def test_search_queries_cover_parties_and_issues():
 
 
 def test_youtube_handle_resolution():
+    class Resp:
+        def __init__(self, url):
+            self.status_code = 200 if "@Nieuwsuur" in url else 404
+            self.text = '<script>{"channelId":"UCExcZNwh_3Mwm4fF4VSiu2w"}</script>' if self.status_code == 200 else ""
+
     class FakeHttp:
-        def get(self, url, params=None):
-            return '<meta itemprop="identifier" content="x"><script>{"channelId":"UCExcZNwh_3Mwm4fF4VSiu2w"}</script>' \
-                if "@Nieuwsuur" in url else None
+        class session:
+            @staticmethod
+            def get(url, timeout=None):
+                return Resp(url)
 
     assert col.resolve_youtube_channel(FakeHttp(), "UCExcZNwh_3Mwm4fF4VSiu2w") == "UCExcZNwh_3Mwm4fF4VSiu2w"
     assert col.resolve_youtube_channel(FakeHttp(), "@Nieuwsuur") == "UCExcZNwh_3Mwm4fF4VSiu2w"

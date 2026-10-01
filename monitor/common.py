@@ -26,7 +26,8 @@ USER_AGENT = ("Mozilla/5.0 (compatible; DutchPoliticalMediaMonitor/2.0; research
               "+https://github.com/Shehab89/XNL_Dashboard)")
 
 ITEM_FIELDS = ["id", "platform", "source", "author", "title", "text", "url", "published_at", "collected_at",
-               "lang", "likes", "shares", "replies", "parties", "issues", "sentiment", "sentiment_score"]
+               "lang", "likes", "shares", "replies", "parties", "issues", "sentiment", "sentiment_score",
+               "analysed_by"]
 
 
 def _load_dotenv():

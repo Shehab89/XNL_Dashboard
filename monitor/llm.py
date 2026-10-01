@@ -5,18 +5,29 @@ answer is constrained to a JSON schema, so every label comes from the fixed list
 (the dashboard depends on those names). Anything the LLM cannot answer is returned as None and the caller
 falls back to the local model / lexicon.
 
-Settings (environment): GEMINI_API_KEY or ANTHROPIC_API_KEY, LLM_MODEL (default gemini-flash-latest for
-Gemini, claude-opus-5-5 for Claude), LLM_BATCH_SIZE (default 15), LLM_WORKERS (default 4).
+Settings (environment): GEMINI_API_KEY or ANTHROPIC_API_KEY, LLM_MODEL (default gemini-2.5-flash for
+Gemini, claude-opus-5-5 for Claude), LLM_BATCH_SIZE (default 40), LLM_WORKERS (default 1 for Gemini, 4 for Claude).
+
+Gemini's free tier allows only a small number of requests per day per model, so items are sent in large batches,
+one at a time, and when the daily quota is used up the rest of the run uses the fallback instead of retrying.
 """
 
 import json
+import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 from .common import env, log
 
-DEFAULT_MODELS = {"gemini": "gemini-flash-latest", "claude": "claude-opus-5-5"}
+DEFAULT_MODELS = {"gemini": "gemini-2.5-flash", "claude": "claude-opus-5-5"}
+DEFAULT_WORKERS = {"gemini": 1, "claude": 4}
+
+
+class QuotaExhausted(RuntimeError):
+    """The provider's daily quota is used up: stop calling it for the rest of the run."""
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 SENTIMENTS = ["positive", "neutral", "negative"]
 MAX_CHARS = 700
@@ -92,6 +103,12 @@ def available():
     return provider() is not None
 
 
+def _retry_delay(text, default):
+    """Seconds Gemini asks us to wait ("retryDelay": "40s"), capped at 90."""
+    match = re.search(r'"retryDelay":\s*"([\d.]+)s"', text)
+    return min(90.0, float(match.group(1)) + 1) if match else default
+
+
 class GeminiClient:
     """Minimal Gemini REST client returning the JSON text of one structured-output call."""
 
@@ -105,14 +122,14 @@ class GeminiClient:
             "generationConfig": {"temperature": 0, "responseMimeType": "application/json",
                                  "responseJsonSchema": schema, "maxOutputTokens": 8000},
         }
-        for attempt in range(3):
+        for attempt in range(4):
             r = self.session.post(GEMINI_URL.format(model=model), json=body, timeout=120,
                                   headers={"x-goog-api-key": self.api_key})
-            if r.status_code not in (429, 500, 502, 503, 504) or attempt == 2:
+            if r.status_code == 429 and "PerDay" in r.text:
+                raise QuotaExhausted(f"Gemini daily quota for {model} used up")
+            if r.status_code not in (429, 500, 502, 503, 504) or attempt == 3:
                 break
-            import time
-
-            time.sleep(5 * (attempt + 1))
+            time.sleep(_retry_delay(r.text, default=10 * (attempt + 1)))
         if r.status_code >= 400:
             raise RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
         candidate = r.json()["candidates"][0]
@@ -187,18 +204,27 @@ def classify(items, parties, issues, client=None, model=None):
         return []
     client = client or _client()
     model = model or env("LLM_MODEL") or DEFAULT_MODELS[provider() or "claude"]
-    size = int(env("LLM_BATCH_SIZE", "15"))
+    size = int(env("LLM_BATCH_SIZE", "40"))
     batches = [items[i:i + size] for i in range(0, len(items), size)]
+    exhausted = threading.Event()
 
     def work(batch):
+        if exhausted.is_set():
+            return [None] * len(batch)
         try:
             return _classify_batch(client, model, batch, parties, issues)
+        except QuotaExhausted as exc:
+            if not exhausted.is_set():
+                log.warning("%s; the remaining items use the fallback.", exc)
+            exhausted.set()
+            return [None] * len(batch)
         except Exception as exc:  # one bad batch must not lose the whole run
             log.warning("LLM batch of %d failed (%s: %s); those items use the fallback.", len(batch),
                         type(exc).__name__, str(exc)[:200])
             return [None] * len(batch)
 
-    with ThreadPoolExecutor(max_workers=int(env("LLM_WORKERS", "4"))) as pool:
+    workers = int(env("LLM_WORKERS") or DEFAULT_WORKERS.get(provider() or "claude", 1))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         out = [r for chunk in pool.map(work, batches) for r in chunk]
     log.info("LLM (%s) classified %d of %d items", model, sum(r is not None for r in out), len(items))
     return out

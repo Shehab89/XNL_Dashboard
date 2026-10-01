@@ -25,8 +25,12 @@ CREATE TABLE IF NOT EXISTS items (
     parties          TEXT[] DEFAULT '{}',     -- parties mentioned, e.g. {PVV,VVD}
     issues           TEXT[] DEFAULT '{}',     -- issues mentioned, e.g. {Wonen}
     sentiment        TEXT CHECK (sentiment IN ('positive', 'neutral', 'negative')),
-    sentiment_score  REAL                     -- -1 (negative) … +1 (positive)
+    sentiment_score  REAL,                    -- -1 (negative) … +1 (positive)
+    analysed_by      TEXT                     -- llm | local | api | lexicon
 );
+
+-- Existing databases: add the column without recreating the table.
+ALTER TABLE items ADD COLUMN IF NOT EXISTS analysed_by TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_items_published ON items (published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_platform  ON items (platform);

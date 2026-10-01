@@ -187,7 +187,7 @@ def analyse(items, tagger=None, backend=None, keep_irrelevant=False):
                 pending.append(item)
             elif answer["relevant"] or keep_irrelevant:
                 item.update(parties=answer["parties"], issues=answer["issues"], sentiment=answer["sentiment"],
-                            sentiment_score=answer["score"])
+                            sentiment_score=answer["score"], analysed_by="llm")
                 decided.append(item)
         used_llm = bool(decided) or len(pending) < len(kept)
         kept_llm = decided
@@ -198,6 +198,6 @@ def analyse(items, tagger=None, backend=None, keep_irrelevant=False):
     if pending:
         scores, fallback = score_sentiment([i["text"] for i in pending], None if wanted in ("", "llm") else wanted)
         for item, (score, label) in zip(pending, scores):
-            item["sentiment_score"], item["sentiment"] = score, label
+            item["sentiment_score"], item["sentiment"], item["analysed_by"] = score, label, fallback
         used = f"llm+{fallback}" if used_llm else fallback
     return kept_llm + pending, used or "none"

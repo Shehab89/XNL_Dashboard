@@ -67,8 +67,14 @@ def run(only=None, hours=None, backend=None, retention_days=180, extra_json=None
         report["extra"] = len(extra)
         raw += extra
     unique = dedupe(raw)
-    items, used = analyse(unique, Tagger(entities), backend=backend)
-    log.info("Collected %d items, %d unique, %d political (sentiment: %s)", len(raw), len(unique), len(items), used)
+    # items the LLM already labelled in an earlier run are not sent (and paid for) again
+    known = store.llm_done_ids([i["id"] for i in unique])
+    fresh = [i for i in unique if i["id"] not in known]
+    if known:
+        log.info("%d items were already analysed by the LLM in an earlier run (skipped)", len(known))
+    items, used = analyse(fresh, Tagger(entities), backend=backend)
+    log.info("Collected %d items, %d unique, %d new, %d political (sentiment: %s)", len(raw), len(unique), len(fresh),
+             len(items), used)
 
     saved = store.upsert(items)
     log.info("Saved %d items to %s", saved, store.name)
