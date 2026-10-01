@@ -1,123 +1,48 @@
 -- ============================================================
--- Dutch Social Monitor — Supabase (PostgreSQL) Schema
--- Run in: Supabase Dashboard > SQL Editor
+-- Dutch Political Media Monitor — Supabase (PostgreSQL) schema
+-- Run once in: Supabase Dashboard → SQL Editor → New query → paste → Run.
+-- Safe to run again (it only creates what is missing).
+--
+-- One table `items` holds every news article and social post, with its analysis.
+-- (The old tables raw_tweets / tweet_analysis / daily_topic_summary are no longer used and
+--  can be dropped once you no longer need their data.)
 -- ============================================================
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- ──────────────────────────────────────────────
--- 1. Raw Tweets  (landing table from scraper)
--- ──────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS raw_tweets (
-    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tweet_id       TEXT UNIQUE NOT NULL,
-    topic          TEXT NOT NULL,          -- e.g. 'Salaris', 'Woningnood'
-    text           TEXT NOT NULL,
-    author         TEXT,
-    author_handle  TEXT,
-    published_at   TIMESTAMPTZ,
-    likes          INTEGER DEFAULT 0,
-    retweets       INTEGER DEFAULT 0,
-    replies        INTEGER DEFAULT 0,
-    tweet_url      TEXT,
-    scraped_at     TIMESTAMPTZ DEFAULT NOW(),
-    processed      BOOLEAN DEFAULT FALSE   -- flipped by NLP pipeline
+CREATE TABLE IF NOT EXISTS items (
+    id               TEXT PRIMARY KEY,        -- "<platform>:<hash>", stable per post/article
+    platform         TEXT NOT NULL,           -- news | google_news | gdelt | bluesky | mastodon | reddit | telegram | youtube | x
+    source           TEXT,                    -- outlet, subreddit, Mastodon server, channel ...
+    author           TEXT,
+    title            TEXT,
+    text             TEXT NOT NULL,
+    url              TEXT,
+    published_at     TIMESTAMPTZ NOT NULL,
+    collected_at     TIMESTAMPTZ DEFAULT NOW(),
+    lang             TEXT,
+    likes            INTEGER DEFAULT 0,
+    shares           INTEGER DEFAULT 0,
+    replies          INTEGER DEFAULT 0,
+    parties          TEXT[] DEFAULT '{}',     -- parties mentioned, e.g. {PVV,VVD}
+    issues           TEXT[] DEFAULT '{}',     -- issues mentioned, e.g. {Wonen}
+    sentiment        TEXT CHECK (sentiment IN ('positive', 'neutral', 'negative')),
+    sentiment_score  REAL                     -- -1 (negative) … +1 (positive)
 );
 
--- Indexes for common query patterns
-CREATE INDEX IF NOT EXISTS idx_raw_tweets_topic      ON raw_tweets(topic);
-CREATE INDEX IF NOT EXISTS idx_raw_tweets_processed  ON raw_tweets(processed);
-CREATE INDEX IF NOT EXISTS idx_raw_tweets_scraped_at ON raw_tweets(scraped_at DESC);
-CREATE INDEX IF NOT EXISTS idx_raw_tweets_published  ON raw_tweets(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_items_published ON items (published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_items_platform  ON items (platform);
+CREATE INDEX IF NOT EXISTS idx_items_parties   ON items USING GIN (parties);
+CREATE INDEX IF NOT EXISTS idx_items_issues    ON items USING GIN (issues);
 
+-- Row Level Security: the pipeline writes with the service_role key,
+-- the dashboard reads with the public anon key (read-only).
+ALTER TABLE items ENABLE ROW LEVEL SECURITY;
 
--- ──────────────────────────────────────────────
--- 2. Tweet Analysis  (NLP results per tweet)
--- ──────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS tweet_analysis (
-    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tweet_id         TEXT UNIQUE NOT NULL REFERENCES raw_tweets(tweet_id) ON DELETE CASCADE,
-    sentiment_label  TEXT CHECK (sentiment_label IN ('positive','negative','neutral','unknown')),
-    sentiment_score  FLOAT,          -- confidence [0,1]
-    cluster_id       INTEGER,        -- BERTopic cluster (-1 = noise)
-    cleaned_text     TEXT,
-    analysis_date    DATE DEFAULT CURRENT_DATE
-);
-
-CREATE INDEX IF NOT EXISTS idx_analysis_date      ON tweet_analysis(analysis_date DESC);
-CREATE INDEX IF NOT EXISTS idx_analysis_sentiment ON tweet_analysis(sentiment_label);
-CREATE INDEX IF NOT EXISTS idx_analysis_cluster   ON tweet_analysis(cluster_id);
-
-
--- ──────────────────────────────────────────────
--- 3. Daily Topic Summary  (aggregated per day)
--- ──────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS daily_topic_summary (
-    id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    date                 DATE NOT NULL,
-    topic                TEXT NOT NULL,     -- social topic (Salaris etc.)
-    cluster_id           INTEGER,
-    cluster_label        TEXT,              -- human-readable BERTopic label
-    tweet_count          INTEGER DEFAULT 0,
-    total_likes          INTEGER DEFAULT 0,
-    total_retweets       INTEGER DEFAULT 0,
-    positive_count       INTEGER DEFAULT 0,
-    negative_count       INTEGER DEFAULT 0,
-    avg_sentiment_score  FLOAT,
-    UNIQUE (date, topic, cluster_label)
-);
-
-CREATE INDEX IF NOT EXISTS idx_summary_date  ON daily_topic_summary(date DESC);
-CREATE INDEX IF NOT EXISTS idx_summary_topic ON daily_topic_summary(topic);
-
-
--- ──────────────────────────────────────────────
--- 4. Convenience view for Dashboard
--- ──────────────────────────────────────────────
-CREATE OR REPLACE VIEW dashboard_tweets AS
-SELECT
-    r.tweet_id,
-    r.topic,
-    r.text,
-    r.author,
-    r.author_handle,
-    r.published_at,
-    r.likes,
-    r.retweets,
-    r.replies,
-    r.tweet_url,
-    a.sentiment_label,
-    a.sentiment_score,
-    a.cluster_id,
-    a.analysis_date
-FROM raw_tweets r
-LEFT JOIN tweet_analysis a ON r.tweet_id = a.tweet_id;
-
-
--- ──────────────────────────────────────────────
--- 5. Row Level Security (optional but recommended)
--- ──────────────────────────────────────────────
-ALTER TABLE raw_tweets          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tweet_analysis      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE daily_topic_summary ENABLE ROW LEVEL SECURITY;
-
--- Allow service role full access (used by scraper + NLP)
-CREATE POLICY "service_role_all" ON raw_tweets
-    FOR ALL TO service_role USING (true) WITH CHECK (true);
-
-CREATE POLICY "service_role_all" ON tweet_analysis
-    FOR ALL TO service_role USING (true) WITH CHECK (true);
-
-CREATE POLICY "service_role_all" ON daily_topic_summary
-    FOR ALL TO service_role USING (true) WITH CHECK (true);
-
--- Allow anon/authenticated READ access for the dashboard
-CREATE POLICY "public_read" ON raw_tweets
-    FOR SELECT TO anon, authenticated USING (true);
-
-CREATE POLICY "public_read" ON tweet_analysis
-    FOR SELECT TO anon, authenticated USING (true);
-
-CREATE POLICY "public_read" ON daily_topic_summary
-    FOR SELECT TO anon, authenticated USING (true);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'items' AND policyname = 'service_role_all') THEN
+        CREATE POLICY "service_role_all" ON items FOR ALL TO service_role USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'items' AND policyname = 'public_read') THEN
+        CREATE POLICY "public_read" ON items FOR SELECT TO anon, authenticated USING (true);
+    END IF;
+END $$;

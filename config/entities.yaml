@@ -1,0 +1,117 @@
+# What the monitor looks for in every post and article.
+#
+# parties:  name -> colour + aliases. An item "mentions" a party when any alias appears.
+#           Aliases in `exact` are matched case-sensitively as whole words: use it for acronyms
+#           and for names that are also normal Dutch words ("DENK", "Klaver", "Dassen", "Volt").
+#           Aliases in `words` are matched case-insensitively as whole words / phrases.
+#           Keep leaders up to date after elections or leadership changes.
+# issues:   name -> keyword stems. A stem matches at the start of a word
+#           ("asiel" matches "asielzoekers"); add "$" to require the whole word ("zorg$").
+
+parties:
+  PVV:
+    color: "#1d3557"
+    exact: [PVV]
+    words: [Wilders, Partij voor de Vrijheid]
+  VVD:
+    color: "#f77f00"
+    exact: [VVD]
+    words: [Yeşilgöz, Yesilgoz, Dilan Yeşilgöz]
+  D66:
+    color: "#2bb24c"
+    exact: [D66]
+    words: [Jetten, Rob Jetten]
+  GL-PvdA:
+    color: "#d62828"
+    exact: [GL-PvdA, GLPvdA, PvdA, Klaver]
+    words: [GroenLinks, Partij van de Arbeid, Jesse Klaver, Timmermans]
+  CDA:
+    color: "#0b8457"
+    exact: [CDA]
+    words: [Bontenbal, Henri Bontenbal]
+  JA21:
+    color: "#3a0ca3"
+    exact: [JA21]
+    words: [Eerdmans, Joost Eerdmans]
+  FvD:
+    color: "#8d0801"
+    exact: [FvD, FVD]
+    words: [Forum voor Democratie, Baudet, Thierry Baudet]
+  SP:
+    color: "#ff006e"
+    exact: [SP]
+    words: [Socialistische Partij, Jimmy Dijk]
+  BBB:
+    color: "#9acd32"
+    exact: [BBB]
+    words: [BoerBurgerBeweging, Van der Plas, Caroline van der Plas]
+  NSC:
+    color: "#264653"
+    exact: [NSC]
+    words: [Nieuw Sociaal Contract, Omtzigt]
+  PvdD:
+    color: "#2d6a4f"
+    exact: [PvdD]
+    words: [Partij voor de Dieren, Ouwehand]
+  ChristenUnie:
+    color: "#00a6fb"
+    exact: [CU]
+    words: [ChristenUnie, Bikker, Mirjam Bikker]
+  SGP:
+    color: "#e76f51"
+    exact: [SGP, Stoffer]
+    words: [Staatkundig Gereformeerde Partij]
+  DENK:
+    color: "#00b4d8"
+    exact: [DENK]
+    words: [Van Baarle]
+  Volt:
+    color: "#7b2cbf"
+    exact: [Volt, Dassen]
+    words: [Laurens Dassen]
+  50PLUS:
+    color: "#b5179e"
+    exact: [50PLUS, 50Plus]
+    words: []
+
+issues:
+  Migratie & asiel:
+    [migratie, migrant, immigratie, asiel, vluchteling, azc, ter apel, spreidingswet, statushouder,
+     gezinshereniging, instroom, grenscontrole, grenzen dicht]
+  Wonen:
+    [woningnood, woningmarkt, woningbouw, woningtekort, huur, woningzoekend,
+     koopwoning, hypotheek, huisvesting, dakloos, starters op de woningmarkt, sociale huur]
+  Zorg:
+    [zorg$, zorgkosten, zorgverzekering, zorgpremie, eigen risico, ziekenhuis, wachtlijst, huisarts,
+     ggz, verpleeg, mantelzorg, jeugdzorg, ouderenzorg]
+  Economie & koopkracht:
+    [koopkracht, inflatie, economie, economisch, boodschappen, energierekening, energieprij,
+     prijsstijging, recessie, begroting, miljoenennota, prinsjesdag, staatsschuld, bezuinig]
+  Werk & inkomen:
+    [salaris, minimumloon, cao, loonsverhoging, inkomen, uitkering, pensioen, aow, werkloos,
+     arbeidsmarkt, zzp, flexwerk, armoede]
+  Belastingen & toeslagen:
+    [belasting, toeslag, btw, fiscus, box 3, box3, accijns, heffing, toeslagenaffaire, fraude]
+  Klimaat & energie:
+    [klimaat, co2, duurza, energietransitie, windmolen, windpark, zonnepane, kerncentrale,
+     aardgas, groningen, fossiel, uitstoot]
+  Landbouw & stikstof:
+    [stikstof, boer, landbouw, veehouderij, natuurvergunning, uitkoop, mest]
+  Onderwijs:
+    [onderwijs, school, scholen, leraar, leraren, leerling, student, studiefinanciering, basisbeurs,
+     universiteit, hogeschool, mbo, lerarentekort, collegegeld]
+  Veiligheid & justitie:
+    [politie, criminaliteit, criminele, veiligheid, justitie, gevangenis, drugs, ondermijning,
+     explosie, aanslag, terreur, rechter, straf]
+  Defensie & Oekraïne:
+    [defensie, navo, nato, oekraïne, oekraine, rusland, poetin, oorlog, leger, militair, wapens]
+  Midden-Oosten:
+    [gaza, israël, israel, palestijn, hamas, westelijke jordaanoever, iran]
+  Europa:
+    [europese unie, europees, brussel, eu$, europarlement, eurocommissaris]
+  Rechtsstaat & discriminatie:
+    [mensenrechten, discriminatie, racisme, rechtsstaat, grondrecht, demonstratie, vrijheid van meningsuiting,
+     lhbti, emancipatie, gelijkheid]
+  Kabinet & formatie:
+    [kabinet, coalitie, formatie, formateur, informateur, minister, premier, tweede kamer, eerste kamer,
+     motie, kamerdebat, verkiezing, peiling, oppositie]

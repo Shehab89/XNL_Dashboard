@@ -1,0 +1,58 @@
+# Where the monitor collects from. Every source is free.
+# Remove a line to skip a source, or add your own. Unreachable sources are skipped with a warning.
+
+# How far back to collect on each run (hours) and how many results per search query.
+lookback_hours: 48
+max_per_query: 50
+
+# --- NEWS MEDIA ---------------------------------------------------------------------------
+# RSS feeds of Dutch news outlets (full stream of articles; only political ones are kept).
+news_feeds:
+  NOS: [https://feeds.nos.nl/nosnieuwspolitiek, https://feeds.nos.nl/nosnieuwsbinnenland]
+  NU.nl: [https://www.nu.nl/rss/Politiek, https://www.nu.nl/rss/Binnenland]
+  de Volkskrant: [https://www.volkskrant.nl/politiek/rss.xml]
+  Trouw: [https://www.trouw.nl/politiek/rss.xml]
+  AD: [https://www.ad.nl/politiek/rss.xml]
+  Het Parool: [https://www.parool.nl/nederland/rss.xml]
+  NRC: [https://www.nrc.nl/rss/]
+  RTL Nieuws: [https://www.rtlnieuws.nl/rss.xml]
+  GeenStijl: [https://www.geenstijl.nl/feeds/recent.atom]
+
+# Google News search (covers hundreds of Dutch outlets incl. regional ones). One search per
+# party and per issue is run automatically; these are extra searches on top of that.
+google_news:
+  enabled: true
+  extra_queries: ["Tweede Kamer", "kabinet"]
+
+# GDELT: global news database, free API. Adds outlets that are not in Google News.
+gdelt:
+  enabled: true
+
+# --- SOCIAL MEDIA -------------------------------------------------------------------------
+# Bluesky: searched for every party and issue (Dutch-language posts only).
+# Search may require a free Bluesky account: set BSKY_HANDLE and BSKY_APP_PASSWORD
+# (Settings -> Privacy and security -> App passwords).
+bluesky:
+  enabled: true
+
+# Mastodon: public hashtag timelines on Dutch-speaking servers.
+mastodon:
+  instances: [mastodon.nl, mastodon.social, social.overheid.nl]
+  hashtags: [tweedekamer, politiek, kabinet, nlpolitiek, verkiezingen, pvv, vvd, d66, glpvda, cda]
+
+# Reddit: newest posts in Dutch subreddits + subreddit search per party.
+reddit:
+  subreddits: [thenetherlands, nederlands, Netherlands, NederlandsePolitiek]
+
+# Telegram: public channels (read from https://t.me/s/<channel>, no account needed).
+# Add the channel names you want to follow (the part after t.me/).
+telegram:
+  channels: []
+
+# YouTube: channel uploads via RSS (titles + descriptions). Add channel IDs (start with "UC"),
+# found in the channel page source or via "Share channel -> Copy channel ID".
+youtube:
+  channels: {}
+  # example:  NOS: UCxxxxxxxxxxxxxxxxxxxxxx
+
+# X / Twitter: optional, see scraper/ (needs your own X login cookies; use at your own risk).

@@ -1,4 +1,11 @@
-# Local credentials
 .env
 .streamlit/secrets.toml
+data/
 __pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+scraper/node_modules/
+scraper/dist/
+scraper/queries.json
+scraper/x_items.json
