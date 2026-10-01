@@ -74,19 +74,15 @@ def test_analyse_drops_irrelevant(tagger):
 
 # ----------------------------------------------------------------------------- LLM classification
 
-class _FakeMessages:
-    def __init__(self, reply, stop_reason="end_turn"):
-        self.reply, self.stop_reason, self.calls = reply, stop_reason, []
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        block = type("B", (), {"type": "text", "text": json.dumps(self.reply)})()
-        return type("R", (), {"content": [block], "stop_reason": self.stop_reason})()
-
-
 class _FakeClient:
-    def __init__(self, *a, **k):
-        self.messages = _FakeMessages(*a, **k)
+    def __init__(self, reply, fail=False):
+        self.reply, self.fail, self.calls = reply, fail, []
+
+    def generate(self, model, system, prompt, schema):
+        self.calls.append({"model": model, "system": system, "prompt": prompt, "schema": schema})
+        if self.fail:
+            raise RuntimeError("finishReason=SAFETY")
+        return json.dumps(self.reply)
 
 
 PARTIES, ISSUES = ["PVV", "D66"], ["Wonen", "Zorg"]
@@ -104,14 +100,38 @@ def test_llm_classify_validates_and_fixes_results():
     out = llm.classify([{"text": "a", "platform": "x"}, {"text": "b", "platform": "x"}], PARTIES, ISSUES, client=fake)
     assert out[0] == {"relevant": True, "parties": ["PVV"], "issues": ["Wonen"], "sentiment": "negative", "score": -0.7}
     assert out[1]["relevant"] is False
-    call = fake.messages.calls[0]
-    assert call["output_config"]["format"]["type"] == "json_schema" and "Dutch" in call["system"]
+    call = fake.calls[0]
+    assert call["schema"]["properties"]["results"]["items"]["properties"]["parties"]["items"]["enum"] == PARTIES
+    assert "Dutch" in call["system"] and "[1] (x) b" in call["prompt"]
 
 
 def test_llm_missing_or_refused_batch_gives_none():
     assert llm.classify([{"text": "a", "platform": "x"}], PARTIES, ISSUES, client=_FakeClient({"results": []})) == [None]
-    refused = _FakeClient({"results": []}, stop_reason="refusal")
+    refused = _FakeClient({"results": []}, fail=True)
     assert llm.classify([{"text": "a", "platform": "x"}], PARTIES, ISSUES, client=refused) == [None]
+
+
+def test_gemini_client_request_shape(monkeypatch):
+    class Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": '{"results": []}'}]}}]}
+
+    sent = {}
+
+    class Session:
+        def post(self, url, json, timeout, headers):
+            sent.update(url=url, body=json, headers=headers)
+            return Resp()
+
+    text = llm.GeminiClient("k", session=Session()).generate("gemini-flash-latest", "sys", "p", {"type": "object"})
+    assert text == '{"results": []}' and sent["headers"]["x-goog-api-key"] == "k"
+    assert "gemini-flash-latest:generateContent" in sent["url"]
+    assert sent["body"]["generationConfig"]["responseJsonSchema"] == {"type": "object"}
 
 
 def test_analyse_uses_llm_then_falls_back(tagger, monkeypatch):

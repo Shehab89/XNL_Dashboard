@@ -59,7 +59,7 @@ python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -r requirements-model.txt
 ```
 
-For the best sentiment and topic labels, set `ANTHROPIC_API_KEY`: Claude then decides for every candidate item whether it is about Dutch politics, which parties and issues it covers, and its sentiment (the prompt is in `monitor/llm.py`). Set `LLM_MODEL` to pick the model (default `claude-opus-5-5`; `claude-haiku-4-5` is much cheaper). Without a key, or when a call fails, the local model and word list are used.
+For the best sentiment and topic labels, set `GEMINI_API_KEY` (Google Gemini, default model `gemini-flash-latest`) or `ANTHROPIC_API_KEY` (Claude): the LLM then decides for every candidate item whether it is about Dutch politics, which parties and issues it covers, and its sentiment (the prompt is in `monitor/llm.py`). Set `LLM_MODEL` to pick another model. Without a key, or when a call fails, the local model and word list are used.
 
 For Bluesky, copy `.env.example` to `.env` and fill in `BSKY_HANDLE` and `BSKY_APP_PASSWORD`.
 

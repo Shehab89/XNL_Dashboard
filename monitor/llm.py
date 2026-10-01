@@ -1,20 +1,23 @@
 """LLM analysis of each item: is it about Dutch politics, which parties and issues, and what is the sentiment.
 
-Uses Claude through the Anthropic API when ANTHROPIC_API_KEY is set. Items are sent in small batches and the
+Uses Google Gemini when GEMINI_API_KEY is set, otherwise Claude when ANTHROPIC_API_KEY is set. Items are sent in small batches and the
 answer is constrained to a JSON schema, so every label comes from the fixed lists in config/entities.yaml
 (the dashboard depends on those names). Anything the LLM cannot answer is returned as None and the caller
 falls back to the local model / lexicon.
 
-Settings (environment): ANTHROPIC_API_KEY, LLM_MODEL (default claude-opus-5-5; e.g. claude-haiku-4-5 or
-claude-sonnet-5-5 are cheaper), LLM_BATCH_SIZE (default 15), LLM_WORKERS (default 4).
+Settings (environment): GEMINI_API_KEY or ANTHROPIC_API_KEY, LLM_MODEL (default gemini-flash-latest for
+Gemini, claude-opus-5-5 for Claude), LLM_BATCH_SIZE (default 15), LLM_WORKERS (default 4).
 """
 
 import json
 from concurrent.futures import ThreadPoolExecutor
 
+import requests
+
 from .common import env, log
 
-DEFAULT_MODEL = "claude-opus-5-5"
+DEFAULT_MODELS = {"gemini": "gemini-flash-latest", "claude": "claude-opus-5-5"}
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 SENTIMENTS = ["positive", "neutral", "negative"]
 MAX_CHARS = 700
 
@@ -77,14 +80,68 @@ def _schema(parties, issues):
     }
 
 
+def provider():
+    if env("GEMINI_API_KEY"):
+        return "gemini"
+    if env("ANTHROPIC_API_KEY"):
+        return "claude"
+    return None
+
+
 def available():
-    return bool(env("ANTHROPIC_API_KEY"))
+    return provider() is not None
+
+
+class GeminiClient:
+    """Minimal Gemini REST client returning the JSON text of one structured-output call."""
+
+    def __init__(self, api_key, session=None):
+        self.api_key, self.session = api_key, session or requests.Session()
+
+    def generate(self, model, system, prompt, schema):
+        body = {
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0, "responseMimeType": "application/json",
+                                 "responseJsonSchema": schema, "maxOutputTokens": 8000},
+        }
+        for attempt in range(3):
+            r = self.session.post(GEMINI_URL.format(model=model), json=body, timeout=120,
+                                  headers={"x-goog-api-key": self.api_key})
+            if r.status_code not in (429, 500, 502, 503, 504) or attempt == 2:
+                break
+            import time
+
+            time.sleep(5 * (attempt + 1))
+        if r.status_code >= 400:
+            raise RuntimeError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
+        candidate = r.json()["candidates"][0]
+        if candidate.get("finishReason") not in (None, "STOP"):
+            raise RuntimeError(f"finishReason={candidate.get('finishReason')}")
+        return "".join(p.get("text", "") for p in candidate["content"]["parts"])
+
+
+class ClaudeClient:
+    def __init__(self, api_key):
+        import anthropic
+
+        self.client = anthropic.Anthropic(api_key=api_key, max_retries=3, timeout=120.0)
+
+    def generate(self, model, system, prompt, schema):
+        response = self.client.messages.create(
+            model=model, max_tokens=8000, system=system,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        if response.stop_reason in ("refusal", "max_tokens"):
+            raise RuntimeError(f"stop_reason={response.stop_reason}")
+        return next(b.text for b in response.content if b.type == "text")
 
 
 def _client():
-    import anthropic
-
-    return anthropic.Anthropic(api_key=env("ANTHROPIC_API_KEY"), max_retries=3, timeout=120.0)
+    if provider() == "gemini":
+        return GeminiClient(env("GEMINI_API_KEY"))
+    return ClaudeClient(env("ANTHROPIC_API_KEY"))
 
 
 def _render(batch):
@@ -119,14 +176,7 @@ def _normalise(result, parties, issues):
 def _classify_batch(client, model, batch, parties, issues):
     prompt = (f"Allowed parties: {', '.join(parties)}\nAllowed issues: {', '.join(issues)}\n\n"
               f"Classify these {len(batch)} items:\n\n{_render(batch)}")
-    response = client.messages.create(
-        model=model, max_tokens=8000, system=SYSTEM_PROMPT,
-        output_config={"effort": "low", "format": {"type": "json_schema", "schema": _schema(parties, issues)}},
-        messages=[{"role": "user", "content": prompt}],
-    )
-    if response.stop_reason in ("refusal", "max_tokens"):
-        raise RuntimeError(f"stop_reason={response.stop_reason}")
-    text = next(b.text for b in response.content if b.type == "text")
+    text = client.generate(model, SYSTEM_PROMPT, prompt, _schema(parties, issues))
     by_index = {r["i"]: r for r in json.loads(text)["results"]}
     return [_normalise(by_index.get(n), parties, issues) if n in by_index else None for n in range(len(batch))]
 
@@ -136,7 +186,7 @@ def classify(items, parties, issues, client=None, model=None):
     if not items:
         return []
     client = client or _client()
-    model = model or env("LLM_MODEL", DEFAULT_MODEL)
+    model = model or env("LLM_MODEL") or DEFAULT_MODELS[provider() or "claude"]
     size = int(env("LLM_BATCH_SIZE", "15"))
     batches = [items[i:i + size] for i in range(0, len(items), size)]
 
