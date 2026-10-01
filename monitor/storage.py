@@ -52,7 +52,7 @@ class LocalStore:
         out.to_parquet(self.path, index=False)
         return len(items)
 
-    def load(self, days=30):
+    def load(self, days=30, max_rows=None):
         df = self._read()
         return df[df["published_at"] >= pd.Timestamp(_cutoff(days))].reset_index(drop=True)
 
