@@ -4,9 +4,11 @@
 * LocalStore    - a Parquet file in data/ (for running everything on your own computer).
 """
 
+import time
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import requests
 
 from .common import ITEM_FIELDS, ROOT, Http, env, log
 
@@ -85,17 +87,29 @@ class SupabaseStore:
         }
         self.http = Http(pause=0)
 
-    def _request(self, method, params=None, json=None, extra=None):
-        resp = self.http.session.request(method, self.base, params=params, json=json,
-                                         headers={**self.headers, **(extra or {})}, timeout=60)
+    def _request(self, method, params=None, json=None, extra=None, attempts=4):
+        # retry dropped connections and server errors: one slow write must not lose a whole run's analysis
+        for attempt in range(attempts):
+            try:
+                resp = self.http.session.request(method, self.base, params=params, json=json,
+                                                 headers={**self.headers, **(extra or {})}, timeout=(15, 120))
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                if attempt == attempts - 1:
+                    raise
+                log.warning("Supabase %s failed (%s); retrying.", method, type(exc).__name__)
+                time.sleep(5 * (attempt + 1))
+                continue
+            if resp.status_code < 500 or attempt == attempts - 1:
+                break
+            time.sleep(5 * (attempt + 1))
         if resp.status_code >= 300:
             raise RuntimeError(f"Supabase {method} failed: HTTP {resp.status_code}: {resp.text[:300]}")
         return resp
 
-    def upsert(self, items):
+    def upsert(self, items, chunk=100):
         rows = [{k: item.get(k) for k in ITEM_FIELDS} for item in items]
-        for i in range(0, len(rows), 500):
-            self._request("POST", params={"on_conflict": "id"}, json=rows[i:i + 500],
+        for i in range(0, len(rows), chunk):
+            self._request("POST", params={"on_conflict": "id"}, json=rows[i:i + chunk],
                           extra={"Prefer": "resolution=merge-duplicates,return=minimal"})
         return len(rows)
 

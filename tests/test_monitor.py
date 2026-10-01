@@ -379,11 +379,34 @@ def test_supabase_store_requests(monkeypatch):
     monkeypatch.setattr(store.http.session, "request", fake_request)
     assert store.upsert(rows) == 1200
     posts = [c for c in calls if c[0] == "POST"]
-    assert [c[2] for c in posts] == [500, 500, 200]
+    assert [c[2] for c in posts] == [100] * 12
     assert posts[0][1] == {"on_conflict": "id"} and "merge-duplicates" in posts[0][3]
     df = store.load(days=30)
     assert len(df) == 1200 and [c[1]["offset"] for c in calls if c[0] == "GET"] == [0, 1000]
     assert df["parties"].iloc[0] == ["PVV"]
+
+
+def test_supabase_store_retries_dropped_writes(monkeypatch):
+    import requests
+
+    from monitor import storage
+
+    attempts = []
+
+    class Resp:
+        status_code, text = 201, ""
+
+    def flaky(method, url, **kwargs):
+        attempts.append(method)
+        if len(attempts) < 3:
+            raise requests.ConnectionError("The write operation timed out")
+        return Resp()
+
+    store = storage.SupabaseStore("https://abc.supabase.co", "key")
+    monkeypatch.setattr(store.http.session, "request", flaky)
+    monkeypatch.setattr(storage.time, "sleep", lambda s: None)
+    assert store.upsert([make_item("news", "NOS", "PVV bericht", url="u")]) == 1
+    assert attempts == ["POST"] * 3
 
 
 def test_local_model_backend(monkeypatch):
