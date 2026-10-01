@@ -58,18 +58,18 @@ youtube:
     Nieuwsuur: "@Nieuwsuur"
     EenVandaag: "@EenVandaag"
     RTL Nieuws: "@RTLNieuws"
-    De Telegraaf: "@telegraaf"
-    BNR: "@BNRNieuwsradio"
-    BNNVARA: "@BNNVARA"
+    De Telegraaf: "@detelegraaf"
+    BNR: "@bnr"
+    BNNVARA: "UCbd_cIHnI1J_XcLT86NMyvQ"
+    Buitenhof: "@buitenhof"
     Op1: "@Op1"
     # parliament and politics commentary
     Tweede Kamer: "@tweedekamer"
     Politiek Inzicht: "@politiekinzicht1"
-    PowNed: "@PowNed"
+    PowNews: "@PowNews"
     GeenStijl: "@GeenStijl"
     Ongehoord Nederland: "@OngehoordNederlandtv"
     De Nieuwe Wereld: "@DeNieuweWereld"
-    Betrouwbare Bronnen: "@betrouwbarebronnen"
     De Correspondent: "@decorrespondent"
     Follow the Money: "@FollowTheMoneyNL"
     # topic channels: migration, climate, housing, health, farming, defence
@@ -77,9 +77,6 @@ youtube:
     Greenpeace NL: "@GreenpeaceNederland"
     Milieudefensie: "@Milieudefensie"
     Vereniging Eigen Huis: "@VerenigingEigenHuis"
-    Woonbond: "@woonbond"
-    Zorgwijzer: "@zorgwijzer"
-    Boerderij: "@boerderij"
     Defensie: "@defensie"
 
 # X / Twitter: optional, see scraper/ (needs your own X login cookies; use at your own risk).

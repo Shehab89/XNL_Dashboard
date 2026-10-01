@@ -132,6 +132,9 @@ def test_gemini_client_request_shape(monkeypatch):
     assert text == '{"results": []}' and sent["headers"]["x-goog-api-key"] == "k"
     assert "gemini-flash-latest:generateContent" in sent["url"]
     assert sent["body"]["generationConfig"]["responseJsonSchema"] == {"type": "object"}
+    assert "thinkingConfig" not in sent["body"]["generationConfig"]
+    llm.GeminiClient("k", session=Session()).generate("gemini-2.5-flash", "sys", "p", {"type": "object"})
+    assert sent["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
 
 
 def test_gemini_daily_quota_stops_the_run(monkeypatch):
@@ -147,6 +150,25 @@ def test_gemini_daily_quota_stops_the_run(monkeypatch):
     items = [{"text": str(n), "platform": "x"} for n in range(5)]
     assert llm.classify(items, PARTIES, ISSUES, client=Client(), model="m") == [None] * 5
     assert len(calls) == 1          # no more calls after the daily quota is gone
+
+
+def test_gemini_quota_switches_to_next_model(monkeypatch):
+    monkeypatch.setenv("LLM_BATCH_SIZE", "1")
+    monkeypatch.setenv("LLM_WORKERS", "1")
+    used = []
+
+    class Client:
+        def generate(self, model, system, prompt, schema):
+            used.append(model)
+            if model == "a":
+                raise llm.QuotaExhausted("quota for a used up")
+            return json.dumps({"results": [{"i": 0, "relevant": True, "parties": [], "issues": [],
+                                             "sentiment": "neutral", "score": 0}]})
+
+    items = [{"text": str(n), "platform": "x"} for n in range(3)]
+    out = llm.classify(items, PARTIES, ISSUES, client=Client(), model="a, b")
+    assert all(r and r["sentiment"] == "neutral" for r in out)
+    assert used == ["a", "b", "b", "b"]
 
 
 def test_retry_delay_parsing():

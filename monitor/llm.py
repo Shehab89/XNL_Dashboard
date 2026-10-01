@@ -5,11 +5,13 @@ answer is constrained to a JSON schema, so every label comes from the fixed list
 (the dashboard depends on those names). Anything the LLM cannot answer is returned as None and the caller
 falls back to the local model / lexicon.
 
-Settings (environment): GEMINI_API_KEY or ANTHROPIC_API_KEY, LLM_MODEL (default gemini-2.5-flash for
-Gemini, claude-opus-5-5 for Claude), LLM_BATCH_SIZE (default 40), LLM_WORKERS (default 1 for Gemini, 4 for Claude).
+Settings (environment): GEMINI_API_KEY or ANTHROPIC_API_KEY, LLM_MODEL (default
+gemini-2.5-flash,gemini-2.5-flash-lite for Gemini, claude-opus-5-5 for Claude; a comma-separated list is tried in
+order), LLM_BATCH_SIZE (default 60), LLM_WORKERS (default 1 for Gemini, 4 for Claude).
 
 Gemini's free tier allows only a small number of requests per day per model, so items are sent in large batches,
-one at a time, and when the daily quota is used up the rest of the run uses the fallback instead of retrying.
+one at a time. When one model's daily quota is used up the next model in the list takes over, and when all are
+used up the rest of the run uses the fallback instead of retrying.
 """
 
 import json
@@ -22,7 +24,7 @@ import requests
 
 from .common import env, log
 
-DEFAULT_MODELS = {"gemini": "gemini-2.5-flash", "claude": "claude-opus-5-5"}
+DEFAULT_MODELS = {"gemini": "gemini-2.5-flash,gemini-2.5-flash-lite", "claude": "claude-opus-5-5"}
 DEFAULT_WORKERS = {"gemini": 1, "claude": 4}
 
 
@@ -116,11 +118,16 @@ class GeminiClient:
         self.api_key, self.session = api_key, session or requests.Session()
 
     def generate(self, model, system, prompt, schema):
+        config = {"temperature": 0, "responseMimeType": "application/json",
+                  "responseJsonSchema": schema, "maxOutputTokens": 16000}
+        if "2.5" in model:
+            # 2.5 models think by default and the thinking counts against maxOutputTokens (run 116 hit
+            # MAX_TOKENS); labelling does not need it
+            config["thinkingConfig"] = {"thinkingBudget": 0}
         body = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0, "responseMimeType": "application/json",
-                                 "responseJsonSchema": schema, "maxOutputTokens": 8000},
+            "generationConfig": config,
         }
         for attempt in range(4):
             r = self.session.post(GEMINI_URL.format(model=model), json=body, timeout=120,
@@ -203,28 +210,35 @@ def classify(items, parties, issues, client=None, model=None):
     if not items:
         return []
     client = client or _client()
-    model = model or env("LLM_MODEL") or DEFAULT_MODELS[provider() or "claude"]
-    size = int(env("LLM_BATCH_SIZE", "40"))
+    models = [m.strip() for m in (model or env("LLM_MODEL") or DEFAULT_MODELS[provider() or "claude"]).split(",")
+              if m.strip()]
+    size = int(env("LLM_BATCH_SIZE", "60"))
     batches = [items[i:i + size] for i in range(0, len(items), size)]
-    exhausted = threading.Event()
+    current = {"n": 0}
+    lock = threading.Lock()
 
     def work(batch):
-        if exhausted.is_set():
-            return [None] * len(batch)
-        try:
-            return _classify_batch(client, model, batch, parties, issues)
-        except QuotaExhausted as exc:
-            if not exhausted.is_set():
-                log.warning("%s; the remaining items use the fallback.", exc)
-            exhausted.set()
-            return [None] * len(batch)
-        except Exception as exc:  # one bad batch must not lose the whole run
-            log.warning("LLM batch of %d failed (%s: %s); those items use the fallback.", len(batch),
-                        type(exc).__name__, str(exc)[:200])
-            return [None] * len(batch)
+        while True:
+            with lock:
+                n = current["n"]
+            if n >= len(models):
+                return [None] * len(batch)
+            try:
+                return _classify_batch(client, models[n], batch, parties, issues)
+            except QuotaExhausted as exc:
+                with lock:
+                    if current["n"] == n:
+                        current["n"] = n + 1
+                        nxt = models[n + 1] if n + 1 < len(models) else None
+                        log.warning("%s; %s.", exc, f"switching to {nxt}" if nxt else
+                                    "the remaining items use the fallback")
+            except Exception as exc:  # one bad batch must not lose the whole run
+                log.warning("LLM batch of %d failed (%s: %s); those items use the fallback.", len(batch),
+                            type(exc).__name__, str(exc)[:200])
+                return [None] * len(batch)
 
     workers = int(env("LLM_WORKERS") or DEFAULT_WORKERS.get(provider() or "claude", 1))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         out = [r for chunk in pool.map(work, batches) for r in chunk]
-    log.info("LLM (%s) classified %d of %d items", model, sum(r is not None for r in out), len(items))
+    log.info("LLM (%s) classified %d of %d items", ", ".join(models), sum(r is not None for r in out), len(items))
     return out
