@@ -445,3 +445,40 @@ def test_local_failure_uses_api_before_lexicon(monkeypatch):
     monkeypatch.setattr(nlp, "_score_api", lambda texts, *a: [(-0.5, "negative") for _ in texts])
     scores, used = nlp.score_sentiment(["x"], backend="local")
     assert used == "api" and scores == [(-0.5, "negative")]
+
+
+def test_history_google_news_uses_date_window():
+    start, end = datetime(2025, 11, 1, tzinfo=timezone.utc), datetime(2025, 11, 8, tzinfo=timezone.utc)
+    rss = """<rss><channel>
+      <item><title>PVV wint - NOS</title><link>https://a/1</link><pubDate>Mon, 03 Nov 2025 10:00:00 GMT</pubDate>
+        <source url="https://nos.nl">NOS</source></item>
+      <item><title>PVV oud - NOS</title><link>https://a/2</link><pubDate>Mon, 20 Oct 2025 10:00:00 GMT</pubDate>
+        <source url="https://nos.nl">NOS</source></item>
+    </channel></rss>"""
+    asked = []
+
+    class FakeHttp:
+        def get(self, url, params=None, **kw):
+            asked.append(params["q"])
+            return rss
+
+        def is_down(self, url):
+            return False
+
+    items = col.history_google_news({}, FakeHttp(), start, end, [("PVV", ["PVV", "Wilders"])])
+    assert asked == ["PVV OR Wilders after:2025-11-01 before:2025-11-08"]
+    assert [i["title"] for i in items] == ["PVV wint"]
+
+
+def test_relabel_backlog_uses_llm_and_drops_irrelevant(tmp_path, monkeypatch):
+    store = LocalStore(tmp_path / "items.parquet")
+    rows = [make_item("news", "NOS", f"bericht {n}", url=f"u{n}") | {"parties": [], "issues": [], "sentiment": "neutral",
+                                                                     "sentiment_score": 0.0, "analysed_by": "local"}
+            for n in range(3)]
+    store.upsert(rows)
+    answer = {"relevant": True, "parties": ["PVV"], "issues": ["Wonen"], "sentiment": "negative", "score": -0.6}
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "classify", lambda items, p, i: [answer, {**answer, "relevant": False}, None])
+    assert pipeline.relabel_backlog(store, load_yaml("entities.yaml"), 10) == 1
+    df = store._read().set_index("analysed_by")
+    assert len(df) == 2 and df.loc["llm", "parties"] == ["PVV"] and "local" in df.index

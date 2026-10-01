@@ -292,6 +292,75 @@ def collect_youtube(cfg, http, since, **_):
     return items
 
 
+# --------------------------------------------------------------------------- history (one-off backfill)
+# Only a few free sources can be searched by date. These functions collect one date window at a time and are
+# used by `python -m monitor.pipeline backfill`; the regular run never calls them.
+
+GOOGLE_NEWS = "https://news.google.com/rss/search"
+
+
+def _in_window(item, start, end):
+    return item["published_at"] and start.isoformat() <= item["published_at"] < end.isoformat()
+
+
+def history_google_news(cfg, http, start, end, queries):
+    """Google News articles published between start and end (Google returns at most ~100 per search)."""
+    all_queries = [terms for _, terms in queries] + [[q] for q in (cfg.get("google_news") or {}).get("extra_queries", [])]
+    items = []
+    for terms in all_queries:
+        q = f"{_or(terms)} after:{start:%Y-%m-%d} before:{end:%Y-%m-%d}"
+        xml = http.get(GOOGLE_NEWS, params={"q": q, "hl": "nl", "gl": "NL", "ceid": "NL:nl"})
+        if xml:
+            items += [i for i in parse_feed(xml, "google_news", "Google News", start) if _in_window(i, start, end)]
+        if http.is_down(GOOGLE_NEWS):
+            break
+    return items
+
+
+def history_gdelt(cfg, http, start, end, queries):
+    """GDELT articles between start and end. GDELT's free API only searches the last three months."""
+    if start < datetime.now(timezone.utc) - timedelta(days=89):
+        return []
+    items = []
+    for _label, terms in queries:
+        clean = [f'"{t}"' if " " in t else t for t in terms if len(t) >= 3]
+        if not clean:
+            continue
+        expr = f"({' OR '.join(clean)})" if len(clean) > 1 else clean[0]
+        data = http.get("https://api.gdeltproject.org/api/v2/doc/doc", as_json=True, params={
+            "query": f"{expr} sourcelang:dutch", "mode": "artlist", "format": "json", "maxrecords": 100,
+            "startdatetime": f"{start:%Y%m%d%H%M%S}", "enddatetime": f"{end:%Y%m%d%H%M%S}", "sort": "datedesc"})
+        items += parse_gdelt(data)
+        if http.is_down("https://api.gdeltproject.org"):
+            break
+        time.sleep(6)  # GDELT asks for at most one request every 5 seconds
+    return items
+
+
+def history_mastodon(cfg, http, since, max_pages=15):
+    """Mastodon hashtag timelines paged back to `since` (40 posts per page)."""
+    mcfg = cfg.get("mastodon") or {}
+    items = []
+    for instance in mcfg.get("instances", []):
+        for tag in mcfg.get("hashtags", []):
+            max_id, found = None, 0
+            for _ in range(max_pages):
+                params = {"limit": 40, **({"max_id": max_id} if max_id else {})}
+                data = http.get(f"https://{instance}/api/v1/timelines/tag/{tag}", params=params, as_json=True)
+                if not isinstance(data, list) or not data:
+                    break
+                page = parse_mastodon(data, instance)
+                items += [i for i in page if _recent(i["published_at"], since)]
+                found += len(page)
+                max_id = data[-1].get("id")
+                if not _recent(page[-1]["published_at"], since):
+                    break
+            if http.is_down(f"https://{instance}"):
+                break
+            log.info("  mastodon %s #%s: %d posts", instance, tag, found)
+    return items
+
+
 COLLECTORS = {
     "news": collect_news_feeds,
     "google_news": collect_google_news,

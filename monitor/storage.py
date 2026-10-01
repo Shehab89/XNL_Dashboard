@@ -56,6 +56,19 @@ class LocalStore:
         df = self._read()
         return df[df["published_at"] >= pd.Timestamp(_cutoff(days))].reset_index(drop=True)
 
+    def backlog(self, limit):
+        """The newest items not labelled by the LLM yet, as dicts."""
+        df = self._read()
+        df = df[df["analysed_by"] != "llm"].sort_values("published_at", ascending=False).head(limit)
+        return df.to_dict("records")
+
+    def delete(self, ids):
+        if ids:
+            df = self._read()
+            keep = df[~df["id"].isin(set(ids))].copy()
+            keep["published_at"] = keep["published_at"].astype(str)
+            keep.to_parquet(self.path, index=False)
+
     def llm_done_ids(self, ids):
         df = self._read()
         return set(df.loc[df["analysed_by"] == "llm", "id"]) & set(ids)
@@ -135,6 +148,18 @@ class SupabaseStore:
                                                 "analysed_by": "eq.llm"}).json()
             found |= {r["id"] for r in rows}
         return found
+
+    def backlog(self, limit):
+        """The newest items not labelled by the LLM yet, as dicts."""
+        return self._request("GET", params={
+            "select": ",".join(ITEM_FIELDS), "or": "(analysed_by.is.null,analysed_by.neq.llm)",
+            "order": "published_at.desc", "limit": limit}).json()
+
+    def delete(self, ids, chunk=150):
+        ids = list(ids)
+        for i in range(0, len(ids), chunk):
+            quoted = ",".join('"' + x.replace('"', '') + '"' for x in ids[i:i + chunk])
+            self._request("DELETE", params={"id": f"in.({quoted})"})
 
     def prune(self, days):
         self._request("DELETE", params={"published_at": f"lt.{_cutoff(days)}"})

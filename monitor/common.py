@@ -4,6 +4,7 @@ import hashlib
 import html
 import logging
 import os
+import random
 import re
 import time
 from datetime import datetime, timezone
@@ -135,12 +136,12 @@ class Http:
     unreachable source cannot slow down the whole collection.
     """
 
-    def __init__(self, pause=0.5):
+    def __init__(self, pause=0.5, jitter=0.0):
         import requests
 
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT, "Accept-Language": "nl,en;q=0.8"})
-        self.pause = pause
+        self.pause, self.jitter = pause, jitter
         self.failures = {}
 
     def _host(self, url):
@@ -162,7 +163,7 @@ class Http:
                 break
             if resp.status_code == 200:
                 self.failures[host] = 0
-                time.sleep(self.pause)
+                time.sleep(self.pause + random.uniform(0, self.jitter))
                 try:
                     return resp.json() if as_json else resp.text
                 except ValueError:
@@ -172,7 +173,8 @@ class Http:
                 log.warning("  ! %s answered HTTP %s", url.split("?")[0], resp.status_code)
                 break
             if attempt < tries - 1:
-                time.sleep(wait)
+                retry_after = resp.headers.get("Retry-After", "")
+                time.sleep(min(120, int(retry_after)) if retry_after.isdigit() else wait)
                 wait *= 2
         self.failures[host] = self.failures.get(host, 0) + 1
         if self.failures[host] == 3:
@@ -181,6 +183,9 @@ class Http:
 
     def is_down(self, url):
         return self.failures.get(self._host(url), 0) >= 3
+
+    def reset(self, url):
+        self.failures[self._host(url)] = 0
 
     def post_json(self, url, payload, headers=None):
         import requests
