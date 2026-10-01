@@ -53,13 +53,33 @@ telegram:
 # or its channel ID (starts with "UC"). Handles that cannot be found are logged and skipped.
 youtube:
   channels:
+    # public broadcasters and big news brands
     NOS: "@NOS"
     Nieuwsuur: "@Nieuwsuur"
     EenVandaag: "@EenVandaag"
     RTL Nieuws: "@RTLNieuws"
     De Telegraaf: "@telegraaf"
-    Tweede Kamer: "@tweedekamer"
-    Op1: "@Op1"
+    BNR: "@BNRNieuwsradio"
     BNNVARA: "@BNNVARA"
+    Op1: "@Op1"
+    # parliament and politics commentary
+    Tweede Kamer: "@tweedekamer"
+    Politiek Inzicht: "@politiekinzicht1"
+    PowNed: "@PowNed"
+    GeenStijl: "@GeenStijl"
+    Ongehoord Nederland: "@OngehoordNederlandtv"
+    De Nieuwe Wereld: "@DeNieuweWereld"
+    Betrouwbare Bronnen: "@betrouwbarebronnen"
+    De Correspondent: "@decorrespondent"
+    Follow the Money: "@FollowTheMoneyNL"
+    # topic channels: migration, climate, housing, health, farming, defence
+    Vluchtelingenwerk: "@vluchtelingenwerk"
+    Greenpeace NL: "@GreenpeaceNederland"
+    Milieudefensie: "@Milieudefensie"
+    Vereniging Eigen Huis: "@VerenigingEigenHuis"
+    Woonbond: "@woonbond"
+    Zorgwijzer: "@zorgwijzer"
+    Boerderij: "@boerderij"
+    Defensie: "@defensie"
 
 # X / Twitter: optional, see scraper/ (needs your own X login cookies; use at your own risk).
