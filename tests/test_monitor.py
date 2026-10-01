@@ -358,6 +358,8 @@ def test_emerging_terms_and_brief(demo_df):
     assert not em.empty and (em["lift"] > 0).all()
     brief = ins.executive_brief(demo_df)
     assert len(brief) >= 5 and "PVV" in brief[1]
+    nl = ins.executive_brief(demo_df, lang="nl")
+    assert len(nl) == len(brief) and nl[0].endswith("bronnen.")
 
 
 def test_rolling_net_and_outlet_tone(demo_df):

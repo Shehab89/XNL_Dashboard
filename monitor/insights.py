@@ -261,45 +261,75 @@ def emerging_terms(df, recent_hours=48, n=12, min_count=4, exclude=()):
     return out.loc[keep].head(n)
 
 
-def executive_brief(df, parties_col="parties"):
-    """Short, plain-language findings for the briefing page."""
+BRIEF_TEXT = {
+    "en": {
+        "monitored": "Monitored **{n:,}** political items: **{news:,}** news articles and **{social:,}** social-media "
+                     "posts from **{sources}** sources.",
+        "dominates": "**{name}** dominates the conversation with **{share:.0%}** share of voice.",
+        "riser": "Biggest riser this week: **{name}** (+{pts:.1f} pts share of voice vs. the week before).",
+        "extremes": "Most negative coverage: **{worst}** (net {worst_net:+.0f}); most positive: **{best}** "
+                    "(net {best_net:+.0f}).",
+        "harsher": "harsher on social media than in the news",
+        "warmer": "warmer on social media than in the news",
+        "gap_tone": "Tone about **{name}** is clearly {where} (social {social:+.0f} vs. news {news:+.0f}).",
+        "top_issue": "Top issue: **{first}** ({share:.0%} of issue mentions), followed by **{second}**.",
+        "agenda": "Agenda gap: **{issue}** gets far more attention on social media ({social:.0%} of posts) than in "
+                  "the news ({news:.0%} of articles).",
+    },
+    "nl": {
+        "monitored": "**{n:,}** politieke items gevolgd: **{news:,}** nieuwsartikelen en **{social:,}** "
+                     "social-mediaberichten uit **{sources}** bronnen.",
+        "dominates": "**{name}** domineert het gesprek met **{share:.0%}** van de aandacht (share of voice).",
+        "riser": "Grootste stijger deze week: **{name}** (+{pts:.1f} procentpunt share of voice t.o.v. de week ervoor).",
+        "extremes": "Meest negatieve berichtgeving: **{worst}** (netto {worst_net:+.0f}); meest positief: **{best}** "
+                    "(netto {best_net:+.0f}).",
+        "harsher": "duidelijk negatiever op sociale media dan in het nieuws",
+        "warmer": "duidelijk positiever op sociale media dan in het nieuws",
+        "gap_tone": "De toon over **{name}** is {where} (sociaal {social:+.0f} vs. nieuws {news:+.0f}).",
+        "top_issue": "Belangrijkste onderwerp: **{first}** ({share:.0%} van de onderwerp-vermeldingen), gevolgd door "
+                     "**{second}**.",
+        "agenda": "Agendakloof: **{issue}** krijgt veel meer aandacht op sociale media ({social:.0%} van de berichten) "
+                  "dan in het nieuws ({news:.0%} van de artikelen).",
+    },
+}
+
+
+def executive_brief(df, parties_col="parties", lang="en"):
+    """Short, plain-language findings for the briefing page (English or Dutch)."""
+    t = BRIEF_TEXT.get(lang, BRIEF_TEXT["en"])
     lines = []
     if df.empty:
         return lines
     n_news = (df["channel"] == "News media").sum()
-    n_social = len(df) - n_news
-    lines.append(f"Monitored **{len(df):,}** political items: **{n_news:,}** news articles and "
-                 f"**{n_social:,}** social-media posts from **{df['source'].nunique()}** sources.")
+    lines.append(t["monitored"].format(n=len(df), news=n_news, social=len(df) - n_news,
+                                       sources=df["source"].nunique()))
 
     sov = share_of_voice(df, parties_col, by_channel=False)
     if not sov.empty:
         top = sov.iloc[0]
-        lines.append(f"**{top[parties_col]}** dominates the conversation with **{top['share']:.0%}** share of voice.")
+        lines.append(t["dominates"].format(name=top[parties_col], share=top["share"]))
     mom = momentum(df, parties_col)
     if not mom.empty and mom.iloc[0]["change"] > 0.02:
         m = mom.iloc[0]
-        lines.append(f"Biggest riser this week: **{m[parties_col]}** (+{100 * m['change']:.1f} pts share of voice "
-                     f"vs. the week before).")
+        lines.append(t["riser"].format(name=m[parties_col], pts=100 * m["change"]))
     sent = sentiment_table(df, parties_col, min_n=20)
     if not sent.empty:
         worst, best = sent.sort_values("net").iloc[0], sent.sort_values("net").iloc[-1]
-        lines.append(f"Most negative coverage: **{worst[parties_col]}** (net {worst['net']:+.0f}); "
-                     f"most positive: **{best[parties_col]}** (net {best['net']:+.0f}).")
+        lines.append(t["extremes"].format(worst=worst[parties_col], worst_net=worst["net"], best=best[parties_col],
+                                          best_net=best["net"]))
         both = sent.head(8)
         both = both[(both["news_n"] >= 20) & (both["social_n"] >= 20)].copy()
         both["gap"] = both["social_net"] - both["news_net"]
         g = both.reindex(both["gap"].abs().sort_values(ascending=False).index).iloc[0] if len(both) else None
         if g is not None and abs(g["gap"]) >= 10:
-            where = "harsher on social media than in the news" if g["gap"] < 0 else "warmer on social media than in the news"
-            lines.append(f"Tone about **{g[parties_col]}** is clearly {where} "
-                         f"(social {g['social_net']:+.0f} vs. news {g['news_net']:+.0f}).")
+            lines.append(t["gap_tone"].format(name=g[parties_col], where=t["harsher"] if g["gap"] < 0 else t["warmer"],
+                                              social=g["social_net"], news=g["news_net"]))
     issues = share_of_voice(df, "issues", by_channel=False)
     if not issues.empty:
-        lines.append(f"Top issue: **{issues.iloc[0]['issues']}** ({issues.iloc[0]['share']:.0%} of issue mentions), "
-                     f"followed by **{issues.iloc[1]['issues'] if len(issues) > 1 else '-'}**.")
+        lines.append(t["top_issue"].format(first=issues.iloc[0]["issues"], share=issues.iloc[0]["share"],
+                                           second=issues.iloc[1]["issues"] if len(issues) > 1 else "-"))
     gap = agenda_gap(df)
     if not gap.empty and gap["gap"].max() > 0.03:
         g = gap.iloc[-1]
-        lines.append(f"Agenda gap: **{g['issue']}** gets far more attention on social media ({g['social']:.0%} of posts) "
-                     f"than in the news ({g['news']:.0%} of articles).")
+        lines.append(t["agenda"].format(issue=g["issue"], social=g["social"], news=g["news"]))
     return lines

@@ -3,6 +3,7 @@
 Run:  streamlit run dashboard/dashboard.py
 """
 
+import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -13,12 +14,18 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from monitor import insights as ins  # noqa: E402
 from monitor.common import PLATFORM_LABELS, load_yaml  # noqa: E402
 from monitor.storage import get_store, to_frame  # noqa: E402
+from i18n import translator  # noqa: E402
 
-st.set_page_config(page_title="Dutch Political Media Monitor", page_icon="🏛️", layout="wide")
+# Language: English or Dutch, kept in the address (?lang=nl) so a Dutch link can be shared.
+LANG = "nl" if st.query_params.get("lang") == "nl" else "en"
+t = translator(LANG)
+
+st.set_page_config(page_title=t("Dutch Political Media Monitor"), page_icon="🏛️", layout="wide")
 
 ENTITIES = load_yaml("entities.yaml")
 
@@ -69,8 +76,26 @@ def style(fig, height=380, legend=True):
     return fig
 
 
+def _hover(template):
+    """Translate the 'column=value' parts that plotly express writes into hover texts."""
+    template = re.sub(r"(^|<br>)([\w ]+)=", lambda m: m.group(1) + t(m.group(2)) + "=", template)
+    return re.sub(r"=([^%<{][^<]*)", lambda m: "=" + t(m.group(1)), template)
+
+
+def localise(fig):
+    if LANG == "nl":
+        for trace in fig.data:
+            if getattr(trace, "name", None):
+                trace.name = t(trace.name)
+            if getattr(trace, "hovertemplate", None):
+                trace.hovertemplate = _hover(trace.hovertemplate)
+            if trace.type == "sunburst":
+                trace.labels = [t(label) for label in trace.labels]
+    return fig
+
+
 def show(fig, height=380, legend=True):
-    st.plotly_chart(style(fig, height, legend), width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(style(localise(fig), height, legend), width="stretch", config={"displayModeBar": False})
 
 
 def note(text):
@@ -91,7 +116,7 @@ def has_any(series, wanted):
     return series.apply(lambda values: bool(wanted.intersection(values)))
 
 
-@st.cache_data(ttl=600, show_spinner="Loading data…")
+@st.cache_data(ttl=600, show_spinner=False)
 def load(days):
     store = get_store()
     try:
@@ -132,20 +157,28 @@ if "preset" not in st.session_state:
     st.session_state["preset"] = "Last 30 days"
     _apply_preset()
 
+def _set_lang():
+    st.query_params["lang"] = "nl" if st.session_state["lang"] == "Nederlands" else "en"
+
+
 with st.sidebar:
-    st.markdown("### 🏛️ Media Monitor")
-    st.markdown("**Time**")
-    st.selectbox("Period", list(PRESETS), key="preset", on_change=_apply_preset, label_visibility="collapsed")
+    st.segmented_control(t("Language"), ["English", "Nederlands"], key="lang", on_change=_set_lang,
+                         default="Nederlands" if LANG == "nl" else "English", label_visibility="collapsed")
+    st.markdown("### 🏛️ " + t("Media Monitor"))
+    st.markdown("**" + t("Time") + "**")
+    st.selectbox(t("Period"), list(PRESETS), key="preset", on_change=_apply_preset, label_visibility="collapsed",
+                 format_func=t)
     d1, d2 = st.columns(2)
-    d1.date_input("From", key="date_from", on_change=_mark_custom, format="DD-MM-YYYY", max_value=today)
-    d2.date_input("To", key="date_to", on_change=_mark_custom, format="DD-MM-YYYY", max_value=today)
+    d1.date_input(t("From"), key="date_from", on_change=_mark_custom, format="DD-MM-YYYY", max_value=today)
+    d2.date_input(t("To"), key="date_to", on_change=_mark_custom, format="DD-MM-YYYY", max_value=today)
 
 date_from, date_to = st.session_state["date_from"], st.session_state["date_to"]
 if date_from > date_to:
     date_from, date_to = date_to, date_from
 span_days = (date_to - date_from).days + 1
 days_needed = (today - date_from).days + 1
-raw, store_name, load_error = load(30 if days_needed <= 30 else 90 if days_needed <= 90 else 400)
+with st.spinner(t("Loading data…")):
+    raw, store_name, load_error = load(30 if days_needed <= 30 else 90 if days_needed <= 90 else 400)
 
 demo = raw.empty
 if demo:
@@ -165,47 +198,48 @@ in_time = data[(data["published_at"] >= start) & (data["published_at"] < end)]
 # ----------------------------------------------------------------------------- other filters
 
 with st.sidebar:
-    st.markdown("**Sources**")
-    channel = st.segmented_control("Channel", ["All", "News media", "Social media"], default="All",
-                                   label_visibility="collapsed") or "All"
+    st.markdown("**" + t("Sources") + "**")
+    channel = st.segmented_control(t("Channel"), ["All", "News media", "Social media"], default="All",
+                                   label_visibility="collapsed", format_func=t) or "All"
     platforms_all = sorted(data["platform"].unique(),
                            key=lambda p: list(PLATFORM_LABELS).index(p) if p in PLATFORM_LABELS else 99)
-    platforms = st.multiselect("Platforms", platforms_all, default=platforms_all,
-                               format_func=lambda p: PLATFORM_LABELS.get(p, p))
+    platforms = st.multiselect(t("Platforms"), platforms_all, default=platforms_all,
+                               format_func=lambda p: t(PLATFORM_LABELS.get(p, p)))
     source_options = in_time[in_time["platform"].isin(platforms)]["source"].value_counts().index.tolist()
-    sources = st.multiselect("Outlets / channels", source_options, placeholder="All outlets and channels",
-                             help="Sorted by number of items in the chosen period.")
+    sources = st.multiselect(t("Outlets / channels"), source_options, placeholder=t("All outlets and channels"),
+                             help=t("Sorted by number of items in the chosen period."))
 
-    st.markdown("**Topics**")
+    st.markdown("**" + t("Topics") + "**")
     all_parties = party_order(in_time) or list(PARTY_COLORS)
-    focus = st.multiselect("Parties", all_parties, default=all_parties[:8],
-                           help="Charts compare these parties. Default: the 8 most-mentioned in the period.")
-    only_focus = st.toggle("Only items about these parties", value=False)
-    issue_filter = st.multiselect("Issues", issue_order(in_time) or list(ENTITIES["issues"]),
-                                  placeholder="All issues")
+    focus = st.multiselect(t("Parties"), all_parties, default=all_parties[:8],
+                           help=t("Charts compare these parties. Default: the 8 most-mentioned in the period."))
+    only_focus = st.toggle(t("Only items about these parties"), value=False)
+    issue_filter = st.multiselect(t("Issues"), issue_order(in_time) or list(ENTITIES["issues"]),
+                                  placeholder=t("All issues"))
 
-    st.markdown("**Content**")
-    tones = st.pills("Tone", TONE_ORDER, selection_mode="multi", default=TONE_ORDER,
-                     format_func=str.capitalize)
-    query = st.text_input("Search text", placeholder="e.g. huurprijzen, Schoof, asiel")
-    ai_only = st.toggle("Only AI-labelled items", value=False,
-                        help="Items whose party, issue and tone were judged by the AI model, not by keywords.")
+    st.markdown("**" + t("Content") + "**")
+    tones = st.pills(t("Tone"), TONE_ORDER, selection_mode="multi", default=TONE_ORDER,
+                     format_func=lambda x: t(x.capitalize()))
+    query = st.text_input(t("Search text"), placeholder=t("e.g. huurprijzen, Schoof, asiel"))
+    ai_only = st.toggle(t("Only AI-labelled items"), value=False,
+                        help=t("Items whose party, issue and tone were judged by the AI model, not by keywords."))
 
     st.divider()
     if demo:
-        st.info("Showing **fictional demo data**. Run the pipeline to collect real data (see README).")
+        st.info(t("Showing **fictional demo data**. Run the pipeline to collect real data (see README)."))
     else:
-        st.caption(f"Data: {store_name} · {len(data):,} items loaded · newest "
-                   f"{data['published_at'].max().tz_convert(ins.TZ):%d %b %Y %H:%M}")
+        st.caption(t("Data: {store} · {n} items loaded · newest {newest}", store=store_name, n=f"{len(data):,}",
+                     newest=f"{data['published_at'].max().tz_convert(ins.TZ):%d-%m-%Y %H:%M}"))
     if load_error:
-        st.warning(f"Could not read {store_name}: {load_error[:160]}")
+        st.warning(t("Could not read {store}: {error}", store=store_name, error=load_error[:160]))
     c1, c2 = st.columns(2)
-    if c1.button("↻ Refresh", width="stretch"):
+    if c1.button(t("↻ Refresh"), width="stretch"):
         st.cache_data.clear()
         st.rerun()
-    if c2.button("Reset filters", width="stretch"):
+    if c2.button(t("Reset filters"), width="stretch"):
         for key in list(st.session_state):
-            del st.session_state[key]
+            if key != "lang":
+                del st.session_state[key]
         st.rerun()
 
 df = in_time[in_time["platform"].isin(platforms)]
@@ -230,31 +264,32 @@ focus = focus or all_parties[:8]
 weekly = span_days > 120
 if weekly:
     df = df.assign(date=df["date"].dt.to_period("W-SUN").dt.start_time)
-unit = "week" if weekly else "day"
+unit = t("week" if weekly else "day")
 
 # ----------------------------------------------------------------------------- header
 
-st.markdown('<p class="kicker">Dutch politics · news & social media</p>', unsafe_allow_html=True)
-st.title("Political Media Monitor")
-active = [f"{channel}" if channel != "All" else None,
-          f"{len(platforms)} of {len(platforms_all)} platforms" if len(platforms) < len(platforms_all) else None,
-          f"{len(sources)} outlets" if sources else None,
-          "only selected parties" if only_focus else None,
+st.markdown(f'<p class="kicker">{t("Dutch politics · news & social media")}</p>', unsafe_allow_html=True)
+st.title(t("Political Media Monitor"))
+active = [t(channel) if channel != "All" else None,
+          t("{n} of {total} platforms", n=len(platforms), total=len(platforms_all))
+          if len(platforms) < len(platforms_all) else None,
+          t("{n} outlets", n=len(sources)) if sources else None,
+          t("only selected parties") if only_focus else None,
           ", ".join(issue_filter) if issue_filter else None,
-          "tone: " + ", ".join(tones) if tones and len(tones) < 3 else None,
-          f'"{query}"' if query else None, "AI-labelled only" if ai_only else None]
+          t("tone: {tones}", tones=", ".join(t(x) for x in tones)) if tones and len(tones) < 3 else None,
+          f'"{query}"' if query else None, t("AI-labelled only") if ai_only else None]
 chips = "".join(f'<span class="chip">{a}</span>' for a in active if a)
-st.markdown(f'<p class="summary"><b>{len(df):,} items</b> · {date_from:%d %b %Y} – {date_to:%d %b %Y} · '
-            f'per {unit} {chips}</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="summary"><b>{t("{n} items", n=f"{len(df):,}")}</b> · {date_from:%d-%m-%Y} – '
+            f'{date_to:%d-%m-%Y} · {t("per week" if weekly else "per day")} {chips}</p>', unsafe_allow_html=True)
 if demo:
-    st.warning("**Demo mode:** the numbers below are generated from fictional posts and invented outlets, "
-               "only to show what the dashboard does. Real data appears after the first pipeline run.", icon="🧪")
+    st.warning(t("**Demo mode:** the numbers below are generated from fictional posts and invented outlets, only to "
+                 "show what the dashboard does. Real data appears after the first pipeline run."), icon="🧪")
 if df.empty:
-    st.error("No items match the current filters. Widen the dates or remove a filter (or press Reset filters).")
+    st.error(t("No items match the current filters. Widen the dates or remove a filter (or press Reset filters)."))
     st.stop()
 
-tabs = st.tabs(["🧭 Briefing", "📈 Trends", "🗳️ Parties", "📌 Issues", "📰 Media landscape", "💬 Narratives",
-                "🔎 Explorer", "ℹ️ Methodology"])
+tabs = st.tabs([t(x) for x in ["🧭 Briefing", "📈 Trends", "🗳️ Parties", "📌 Issues", "📰 Media landscape",
+                                "💬 Narratives", "🔎 Explorer", "ℹ️ Methodology"]])
 
 # ----------------------------------------------------------------------------- 1. briefing
 
@@ -264,47 +299,48 @@ with tabs[0]:
     issues_sov = ins.share_of_voice(df, "issues", by_channel=False)
     net_all = 100 * (df["is_pos"].mean() - df["is_neg"].mean())
     k = st.columns([1, 1, 1, 0.8, 1.1, 1.5])
-    k[0].metric("Items", f"{len(df):,}")
-    k[1].metric("Net tone", f"{net_all:+.0f}", f"{df['is_neg'].mean():.0%} negative", delta_color="off",
-                delta_arrow="off", help="% positive − % negative items")
-    k[2].metric("Social media share", f"{(df['channel'] == 'Social media').mean():.0%}",
-                f"{(df['channel'] == 'Social media').sum():,} posts", delta_color="off", delta_arrow="off")
-    k[3].metric("Sources", f"{df['source'].nunique():,}")
-    k[4].metric("Most discussed", sov.iloc[0]["parties"] if len(sov) else "–",
-                f"{sov.iloc[0]['share']:.0%} share of voice" if len(sov) else None, delta_color="off",
-                delta_arrow="off")
-    k[5].metric("Top issue", issues_sov.iloc[0]["issues"] if len(issues_sov) else "–",
-                f"{issues_sov.iloc[0]['share']:.0%} of issue mentions" if len(issues_sov) else None,
+    k[0].metric(t("Items"), f"{len(df):,}")
+    k[1].metric(t("Net tone"), f"{net_all:+.0f}", t("{share} negative", share=f"{df['is_neg'].mean():.0%}"),
+                delta_color="off", delta_arrow="off", help=t("% positive − % negative items"))
+    k[2].metric(t("Social media share"), f"{(df['channel'] == 'Social media').mean():.0%}",
+                t("{n} posts", n=f"{(df['channel'] == 'Social media').sum():,}"), delta_color="off", delta_arrow="off")
+    k[3].metric(t("Sources"), f"{df['source'].nunique():,}")
+    k[4].metric(t("Most discussed"), sov.iloc[0]["parties"] if len(sov) else "–",
+                t("{share} share of voice", share=f"{sov.iloc[0]['share']:.0%}") if len(sov) else None,
+                delta_color="off", delta_arrow="off")
+    k[5].metric(t("Top issue"), issues_sov.iloc[0]["issues"] if len(issues_sov) else "–",
+                t("{share} of issue mentions", share=f"{issues_sov.iloc[0]['share']:.0%}") if len(issues_sov) else None,
                 delta_color="off", delta_arrow="off")
 
     left, right = st.columns([3, 2])
     with left:
-        st.subheader("Key findings")
-        for line in ins.executive_brief(df):
+        st.subheader(t("Key findings"))
+        for line in ins.executive_brief(df, lang=LANG):
             st.markdown(f"- {line}")
     with right:
-        st.subheader("🚨 Alerts (last 24 hours)")
+        st.subheader(t("🚨 Alerts (last 24 hours)"))
         found = False
         for col, kind in [("parties", "party"), ("issues", "issue")]:
             al = ins.alerts(data[data["platform"].isin(platforms)], col)
             for row in al.head(4).itertuples():
                 found = True
-                name = getattr(row, col)
-                tone = (f"tone {row.net_shift:+.0f} pts vs. usual" if abs(row.net_shift) >= 5 else "tone unchanged")
-                st.markdown(f'<div class="alert"><b>{name}</b> ({kind}): <b>{row.recent}</b> mentions vs. '
-                            f'~{row.typical:.0f} normally ({row.recent / max(row.typical, 1):.1f}×); {tone}.</div>',
-                            unsafe_allow_html=True)
+                tone = (t("tone {shift} pts vs. usual", shift=f"{row.net_shift:+.0f}") if abs(row.net_shift) >= 5
+                        else t("tone unchanged"))
+                text = t("<b>{name}</b> ({kind}): <b>{recent}</b> mentions vs. ~{typical} normally ({ratio}×); {tone}.",
+                         name=getattr(row, col), kind=t(kind), recent=row.recent, typical=f"{row.typical:.0f}",
+                         ratio=f"{row.recent / max(row.typical, 1):.1f}", tone=tone)
+                st.markdown(f'<div class="alert">{text}</div>', unsafe_allow_html=True)
         if not found:
-            st.caption("No unusual spikes: every party and issue is within its normal range.")
+            st.caption(t("No unusual spikes: every party and issue is within its normal range."))
 
     c1, c2 = st.columns(2)
     with c1:
         s = ins.share_of_voice(df, "parties", by_channel=True)
         s = s[s["parties"].isin(focus)]
         fig = px.bar(s, x="mentions", y="parties", color="channel", orientation="h", color_discrete_map=CHANNEL_COLORS,
-                     title="Share of voice: mentions per party",
+                     title=t("Share of voice: mentions per party"),
                      category_orders={"parties": [p for p in party_order(df) if p in focus]})
-        fig.update_layout(yaxis_title="", xaxis_title="Mentions", barmode="stack")
+        fig.update_layout(yaxis_title="", xaxis_title=t("Mentions"), barmode="stack")
         show(fig, 420)
     with c2:
         st_ = sent[sent["parties"].isin(focus)].sort_values("net")
@@ -315,27 +351,29 @@ with tabs[0]:
                         color=[PARTY_COLORS.get(p, "#898781") for p in st_["parties"]],
                         line=dict(width=2, color="rgba(255,255,255,.9)")),
             customdata=st_[["mentions", "positive", "negative"]],
-            hovertemplate="<b>%{y}</b><br>Net sentiment %{x:+.0f}<br>%{customdata[0]} mentions<br>"
-                          "positive %{customdata[1]:.0%} · negative %{customdata[2]:.0%}<extra></extra>"))
+            hovertemplate="<b>%{y}</b><br>" + t("Net sentiment {value}", value="%{x:+.0f}") + "<br>" +
+                          t("{n} mentions", n="%{customdata[0]}") + "<br>" +
+                          t("positive {pos} · negative {neg}", pos="%{customdata[1]:.0%}", neg="%{customdata[2]:.0%}") +
+                          "<extra></extra>"))
         fig.add_vline(x=0, line_dash="dot", line_color="gray")
-        fig.update_layout(title="Net sentiment per party (±95% interval)", xaxis_title="% positive − % negative",
+        fig.update_layout(title=t("Net sentiment per party (±95% interval)"), xaxis_title=t("% positive − % negative"),
                           yaxis_title="")
         show(fig, 420, legend=False)
-    note("Share of voice counts items that mention a party. Net sentiment = % positive items − % negative items; "
-         "bubble size = number of mentions; the whisker shows the statistical uncertainty.")
+    note(t("Share of voice counts items that mention a party. Net sentiment = % positive items − % negative items; "
+           "bubble size = number of mentions; the whisker shows the statistical uncertainty."))
 
 # ----------------------------------------------------------------------------- 2. trends
 
 with tabs[1]:
     if df["date"].nunique() < 2:
-        st.caption("Choose a longer period to see trends.")
+        st.caption(t("Choose a longer period to see trends."))
     else:
         vol = df.groupby(["date", "sentiment"]).size().reset_index(name="items")
         c1, c2 = st.columns([3, 2])
         with c1:
             fig = px.bar(vol, x="date", y="items", color="sentiment", color_discrete_map=TONE_COLORS,
-                         category_orders={"sentiment": TONE_ORDER}, title=f"Items per {unit}, by tone")
-            fig.update_layout(xaxis_title="", yaxis_title=f"Items per {unit}", hovermode="x unified")
+                         category_orders={"sentiment": TONE_ORDER}, title=t("Items per {unit}, by tone", unit=unit))
+            fig.update_layout(xaxis_title="", yaxis_title=t("Items per {unit}", unit=unit), hovermode="x unified")
             show(fig, 380)
         with c2:
             net = df.groupby("date").agg(n=("id", "size"), pos=("is_pos", "sum"), neg=("is_neg", "sum"))
@@ -343,10 +381,10 @@ with tabs[1]:
             net["net"] = 100 * (net["pos"] - net["neg"]) / net["n"]
             fig = go.Figure(go.Bar(x=net.index, y=net["net"], marker_color=[POS if v >= 0 else NEG for v in net["net"]],
                                    customdata=net["n"],
-                                   hovertemplate="%{x|%d %b %Y}<br>net tone %{y:+.0f}<br>%{customdata} items"
-                                                 "<extra></extra>"))
+                                   hovertemplate="%{x|%d-%m-%Y}<br>" + t("net tone {value}", value="%{y:+.0f}") +
+                                                 "<br>%{customdata} items<extra></extra>"))
             fig.add_hline(y=0, line_color="gray", line_width=1)
-            fig.update_layout(title=f"Overall net tone per {unit}", yaxis_title="% positive − % negative",
+            fig.update_layout(title=t("Overall net tone per {unit}", unit=unit), yaxis_title=t("% positive − % negative"),
                               xaxis_title="")
             show(fig, 380, legend=False)
 
@@ -358,36 +396,38 @@ with tabs[1]:
             grid = pd.crosstab(ex[col], ex["date"]).reindex(names).dropna(how="all")
             fig = px.imshow(grid, aspect="auto", color_continuous_scale=SEQUENTIAL, title=title,
                             labels=dict(x="", y="", color="Mentions"))
-            fig.update_traces(hovertemplate="%{y}<br>%{x|%d %b %Y}: %{z} mentions<extra></extra>", xgap=1, ygap=1)
+            fig.update_traces(hovertemplate="%{y}<br>%{x|%d-%m-%Y}: " + t("{z} mentions", z="%{z}") + "<extra></extra>",
+                              xgap=1, ygap=1)
             fig.update_layout(coloraxis_colorbar=dict(thickness=10, title=""))
             show(fig, 90 + 30 * len(grid), legend=False)
 
-        heat("parties", focus, f"Attention per party and {unit}")
-        heat("issues", issue_filter or issue_order(df), f"Attention per issue and {unit}")
-        note("Darker cells = more mentions. Read a row left to right to see when a party or issue was in the news; "
-             "read a column to see what dominated that " + unit + ".")
+        heat("parties", focus, t("Attention per party and {unit}", unit=unit))
+        heat("issues", issue_filter or issue_order(df), t("Attention per issue and {unit}", unit=unit))
+        note(t("Darker cells = more mentions. Read a row left to right to see when a party or issue was in the news; "
+               "read a column to see what dominated that {unit}.", unit=unit))
 
         plat = df.groupby(["date", "platform_label"]).size().reset_index(name="items")
         fig = px.area(plat, x="date", y="items", color="platform_label", color_discrete_map=PLATFORM_COLORS,
-                      title=f"Where the items came from, per {unit}")
+                      title=t("Where the items came from, per {unit}", unit=unit))
         fig.update_traces(line=dict(width=1))
-        fig.update_layout(xaxis_title="", yaxis_title=f"Items per {unit}", hovermode="x unified")
+        fig.update_layout(xaxis_title="", yaxis_title=t("Items per {unit}", unit=unit), hovermode="x unified")
         show(fig, 340)
 
 # ----------------------------------------------------------------------------- 3. parties
 
 with tabs[2]:
-    st.subheader("Attention over time")
+    st.subheader(t("Attention over time"))
     vol = ins.daily_volume(df, "parties", focus)
     if df["date"].nunique() > 1 and not vol.empty:
         pivot = vol.pivot(index="date", columns="parties", values="mentions").fillna(0)
         smooth = pivot.rolling(3, min_periods=1).mean() if (span_days >= 14 and not weekly) else pivot
         long = smooth.reset_index().melt(id_vars="date", var_name="parties", value_name="mentions")
         fig = px.line(long, x="date", y="mentions", color="parties", color_discrete_map=PARTY_COLORS,
-                      title=f"Mentions per {unit}" + (" (3-day average)" if span_days >= 14 and not weekly else ""),
+                      title=t("Mentions per {unit}", unit=unit) +
+                      (t(" (3-day average)") if span_days >= 14 and not weekly else ""),
                       category_orders={"parties": focus})
         fig.update_traces(line=dict(width=2))
-        fig.update_layout(xaxis_title="", yaxis_title=f"Mentions per {unit}", hovermode="x unified")
+        fig.update_layout(xaxis_title="", yaxis_title=t("Mentions per {unit}", unit=unit), hovermode="x unified")
         show(fig, 400)
 
         if weekly:
@@ -397,15 +437,15 @@ with tabs[2]:
             net = ins.rolling_net(df, "parties", focus[:6], window=7 if span_days >= 14 else 1)
         if not net.empty:
             fig = px.line(net, x="date", y="net", color="parties", color_discrete_map=PARTY_COLORS,
-                          title=("Net sentiment per week" if weekly else "Net sentiment, 7-day rolling"
-                                 if span_days >= 14 else "Daily net sentiment") + " (first 6 selected parties)",
+                          title=t("Net sentiment per week" if weekly else "Net sentiment, 7-day rolling"
+                                  if span_days >= 14 else "Daily net sentiment") + t(" (first 6 selected parties)"),
                           category_orders={"parties": focus[:6]})
             fig.update_traces(line=dict(width=2))
             fig.add_hline(y=0, line_dash="dot", line_color="gray")
-            fig.update_layout(xaxis_title="", yaxis_title="Net sentiment", hovermode="x unified")
+            fig.update_layout(xaxis_title="", yaxis_title=t("Net sentiment"), hovermode="x unified")
             show(fig, 380)
     else:
-        st.caption("Choose a period of 7 days or more to see trends.")
+        st.caption(t("Choose a period of 7 days or more to see trends."))
 
     c1, c2 = st.columns(2)
     with c1:
@@ -414,22 +454,22 @@ with tabs[2]:
         if not mom.empty:
             span = max(mom["change"].abs().max(), 0.01)
             fig = px.bar(mom, x="change", y="parties", orientation="h",
-                         title="Momentum: share of voice, last 7 days vs. the 7 days before",
+                         title=t("Momentum: share of voice, last 7 days vs. the 7 days before"),
                          color="change", color_continuous_scale=DIVERGING, range_color=[-span, span])
             fig.update_traces(hovertemplate="%{y}: %{x:+.1%}<extra></extra>")
-            fig.update_layout(xaxis_tickformat="+.0%", xaxis_title="Change in share of voice (pts)", yaxis_title="",
+            fig.update_layout(xaxis_tickformat="+.0%", xaxis_title=t("Change in share of voice (pts)"), yaxis_title="",
                               coloraxis_showscale=False)
             show(fig, 400, legend=False)
     with c2:
         tone = sent[sent["parties"].isin(focus)].sort_values("mentions")
         if not tone.empty:
             long = tone.melt(id_vars="parties", value_vars=TONE_ORDER, var_name="tone", value_name="share")
-            fig = px.bar(long, x="share", y="parties", color="tone", orientation="h", title="Tone of coverage",
+            fig = px.bar(long, x="share", y="parties", color="tone", orientation="h", title=t("Tone of coverage"),
                          color_discrete_map=TONE_COLORS, category_orders={"tone": TONE_ORDER})
             fig.update_layout(xaxis_tickformat=".0%", xaxis_title="", yaxis_title="", barmode="stack")
             show(fig, 400)
 
-    st.subheader("News vs. social media tone")
+    st.subheader(t("News vs. social media tone"))
     both = sent[sent["parties"].isin(focus)].dropna(subset=["news_net", "social_net"])
     if not both.empty:
         fig = go.Figure()
@@ -441,24 +481,24 @@ with tabs[2]:
             fig.add_trace(go.Scatter(x=both[col], y=both["parties"], mode="markers", name=name,
                                      marker=dict(size=13, color=CHANNEL_COLORS[name],
                                                  line=dict(width=2, color="rgba(255,255,255,.9)")),
-                                     hovertemplate="%{y}: %{x:+.0f}<extra>" + name + "</extra>"))
+                                     hovertemplate="%{y}: %{x:+.0f}<extra>" + t(name) + "</extra>"))
         fig.add_vline(x=0, line_dash="dot", line_color="gray")
-        fig.update_layout(xaxis_title="Net sentiment", yaxis_title="", title="Where is a party judged more harshly?")
+        fig.update_layout(xaxis_title=t("Net sentiment"), yaxis_title="", title=t("Where is a party judged more harshly?"))
         show(fig, 380)
-        note("A long line means the party is judged very differently by journalists and by the public online.")
+        note(t("A long line means the party is judged very differently by journalists and by the public online."))
     else:
-        st.caption("Needs both news and social items for the selected parties.")
+        st.caption(t("Needs both news and social items for the selected parties."))
 
-    st.subheader("Issue profile per party")
+    st.subheader(t("Issue profile per party"))
     matrix = ins.party_issue_matrix(df, focus)
     if not matrix.empty:
         fig = px.imshow(matrix, text_auto=".0%", aspect="auto", color_continuous_scale=SEQUENTIAL,
-                        title="Share of each party's mentions that is about each issue")
+                        title=t("Share of each party's mentions that is about each issue"))
         fig.update_traces(xgap=2, ygap=2)
         fig.update_layout(coloraxis_showscale=False, xaxis_title="", yaxis_title="")
         fig.update_xaxes(tickangle=-35)
         show(fig, 90 + 38 * len(matrix))
-        note("Read across a row: which issues a party is linked to in the media (issue ownership).")
+        note(t("Read across a row: which issues a party is linked to in the media (issue ownership)."))
 
 # ----------------------------------------------------------------------------- 4. issues
 
@@ -469,8 +509,8 @@ with tabs[3]:
     with c1:
         s = ins.share_of_voice(df, "issues", by_channel=True)
         fig = px.bar(s, x="mentions", y="issues", color="channel", orientation="h", color_discrete_map=CHANNEL_COLORS,
-                     title="The political agenda: mentions per issue", category_orders={"issues": order})
-        fig.update_layout(yaxis_title="", xaxis_title="Mentions", barmode="stack")
+                     title=t("The political agenda: mentions per issue"), category_orders={"issues": order})
+        fig.update_layout(yaxis_title="", xaxis_title=t("Mentions"), barmode="stack")
         show(fig, 520)
     with c2:
         gap = ins.agenda_gap(df)
@@ -478,34 +518,34 @@ with tabs[3]:
             span = max(gap["gap"].abs().max(), 0.01)
             fig = px.bar(gap, x="gap", y="issue", orientation="h", color="gap", color_continuous_scale=[
                 [0, CHANNEL_COLORS["News media"]], [0.5, "#e1e0d9"], [1, CHANNEL_COLORS["Social media"]]],
-                range_color=[-span, span], title="Agenda gap",
+                range_color=[-span, span], title=t("Agenda gap"),
                 hover_data={"news": ":.1%", "social": ":.1%", "gap": ":+.1%"})
-            fig.update_layout(xaxis_tickformat="+.0%", xaxis_title="← bigger in news · bigger on social →",
+            fig.update_layout(xaxis_tickformat="+.0%", xaxis_title=t("← bigger in news · bigger on social →"),
                               yaxis_title="", coloraxis_showscale=False)
             show(fig, 520, legend=False)
         else:
-            st.caption("Select both channels to compare the news agenda with the social-media agenda.")
+            st.caption(t("Select both channels to compare the news agenda with the social-media agenda."))
 
-    pick = st.multiselect("Issues to compare over time", order, default=order[:4], max_selections=6,
+    pick = st.multiselect(t("Issues to compare over time"), order, default=order[:4], max_selections=6,
                           key="issue_trend")
     if pick and df["date"].nunique() > 1:
         vol = ins.daily_volume(df, "issues", pick)
         palette = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7"]
-        fig = px.line(vol, x="date", y="mentions", color="issues", title=f"Mentions per {unit}",
+        fig = px.line(vol, x="date", y="mentions", color="issues", title=t("Mentions per {unit}", unit=unit),
                       color_discrete_map=dict(zip(pick, palette)), category_orders={"issues": pick})
         fig.update_traces(line=dict(width=2))
-        fig.update_layout(xaxis_title="", yaxis_title=f"Mentions per {unit}", hovermode="x unified")
+        fig.update_layout(xaxis_title="", yaxis_title=t("Mentions per {unit}", unit=unit), hovermode="x unified")
         show(fig, 380)
 
     if not isent.empty:
-        t = isent.sort_values("net")
-        span = max(10, t["net"].abs().max())
-        fig = px.bar(t, x="net", y="issues", orientation="h", color="net", color_continuous_scale=DIVERGING,
-                     range_color=[-span, span], title="Tone of the debate per issue", hover_data={"mentions": True})
-        fig.update_layout(xaxis_title="Net sentiment", yaxis_title="", coloraxis_showscale=False)
+        issue_tone = isent.sort_values("net")
+        span = max(10, issue_tone["net"].abs().max())
+        fig = px.bar(issue_tone, x="net", y="issues", orientation="h", color="net", color_continuous_scale=DIVERGING,
+                     range_color=[-span, span], title=t("Tone of the debate per issue"), hover_data={"mentions": True})
+        fig.update_layout(xaxis_title=t("Net sentiment"), yaxis_title="", coloraxis_showscale=False)
         show(fig, 460, legend=False)
-        note("Issue tone reflects how people and media talk about the topic (e.g. worry about housing), "
-             "not support for a policy.")
+        note(t("Issue tone reflects how people and media talk about the topic (e.g. worry about housing), "
+               "not support for a policy."))
 
 # ----------------------------------------------------------------------------- 5. media landscape
 
@@ -513,7 +553,7 @@ with tabs[4]:
     c1, c2 = st.columns([2, 3])
     with c1:
         mix = df.groupby(["channel", "platform_label"]).size().reset_index(name="items")
-        fig = px.sunburst(mix, path=["channel", "platform_label"], values="items", title="Where the items come from",
+        fig = px.sunburst(mix, path=["channel", "platform_label"], values="items", title=t("Where the items come from"),
                           color="platform_label", color_discrete_map={**PLATFORM_COLORS, **CHANNEL_COLORS})
         fig.update_traces(insidetextorientation="radial", marker=dict(
             colors=[CHANNEL_COLORS.get(lb, PLATFORM_COLORS.get(lb, "#898781")) for lb in fig.data[0].labels],
@@ -523,22 +563,22 @@ with tabs[4]:
         top_src = df.groupby(["source", "platform_label"]).size().reset_index(name="items") \
             .sort_values("items", ascending=False).head(20)
         fig = px.bar(top_src, x="items", y="source", color="platform_label", orientation="h",
-                     color_discrete_map=PLATFORM_COLORS, title="Most active sources")
-        fig.update_layout(yaxis_title="", xaxis_title="Items", yaxis_categoryorder="total ascending")
+                     color_discrete_map=PLATFORM_COLORS, title=t("Most active sources"))
+        fig.update_layout(yaxis_title="", xaxis_title=t("Items"), yaxis_categoryorder="total ascending")
         show(fig, 440)
 
-    st.subheader("How each outlet covers each party")
+    st.subheader(t("How each outlet covers each party"))
     grid = ins.outlet_tone(df, focus)
     if grid is not None and not grid.empty and grid.notna().any().any():
         fig = px.imshow(grid, text_auto=".0f", aspect="auto", color_continuous_scale=DIVERGING, zmin=-60, zmax=60,
-                        title="Net sentiment by news outlet (blank = fewer than 4 articles)")
+                        title=t("Net sentiment by news outlet (blank = fewer than 4 articles)"))
         fig.update_traces(xgap=2, ygap=2)
-        fig.update_layout(xaxis_title="", yaxis_title="", coloraxis_colorbar=dict(title="Net", thickness=10))
+        fig.update_layout(xaxis_title="", yaxis_title="", coloraxis_colorbar=dict(title=t("Net"), thickness=10))
         show(fig, 90 + 34 * len(grid))
-        note("Differences between outlets can reflect editorial choices, but also which events they covered. "
-             "Treat as a signal to investigate, not as proof of bias.")
+        note(t("Differences between outlets can reflect editorial choices, but also which events they covered. "
+               "Treat as a signal to investigate, not as proof of bias."))
     else:
-        st.caption("Not enough news articles per outlet and party in this selection.")
+        st.caption(t("Not enough news articles per outlet and party in this selection."))
 
     attention = ins.explode(df[df["channel"] == "News media"], "parties")
     attention = attention[attention["parties"].isin(focus)]
@@ -547,98 +587,131 @@ with tabs[4]:
         ct = pd.crosstab(attention["source"], attention["parties"], normalize="index").reindex(top_outlets)
         long = ct.reset_index().melt(id_vars="source", var_name="parties", value_name="share")
         fig = px.bar(long, x="share", y="source", color="parties", orientation="h", color_discrete_map=PARTY_COLORS,
-                     title="Which parties each outlet pays attention to",
+                     title=t("Which parties each outlet pays attention to"),
                      category_orders={"parties": [p for p in focus if p in ct.columns]})
-        fig.update_layout(xaxis_tickformat=".0%", xaxis_title="Share of the outlet's party mentions", yaxis_title="",
+        fig.update_layout(xaxis_tickformat=".0%", xaxis_title=t("Share of the outlet's party mentions"), yaxis_title="",
                           barmode="stack")
         show(fig, 460)
 
 # ----------------------------------------------------------------------------- 6. narratives
 
 with tabs[5]:
-    subject = st.selectbox("Subject", ["All items"] + [f"Party: {p}" for p in all_parties] +
-                           [f"Issue: {i}" for i in issue_order(df)])
+    labels = {("all", ""): t("All items"), **{("party", p): t("Party: {name}", name=p) for p in all_parties},
+              **{("issue", i): t("Issue: {name}", name=i) for i in issue_order(df)}}
+    kind, name = st.selectbox(t("Subject"), list(labels), format_func=labels.get)
     sub = df
     exclude = set()
-    if subject.startswith("Party: "):
-        name = subject[7:]
+    if kind == "party":
         sub = df[df["parties"].apply(lambda values: name in values)]
         spec = ENTITIES["parties"][name]
         exclude = {w.lower() for w in [name] + spec.get("exact", []) + spec.get("words", [])}
-    elif subject.startswith("Issue: "):
-        name = subject[7:]
+    elif kind == "issue":
         sub = df[df["issues"].apply(lambda values: name in values)]
 
     if sub.empty:
-        st.caption("No items for this subject.")
+        st.caption(t("No items for this subject."))
     else:
         c1, c2 = st.columns(2)
         with c1:
             terms = pd.DataFrame(ins.top_terms(sub["text"], 15, exclude), columns=["term", "items"])
             if not terms.empty:
-                fig = px.bar(terms.iloc[::-1], x="items", y="term", orientation="h", title="Most used words & phrases")
+                fig = px.bar(terms.iloc[::-1], x="items", y="term", orientation="h", title=t("Most used words & phrases"))
                 fig.update_traces(marker_color=ACCENT)
-                fig.update_layout(yaxis_title="", xaxis_title="Items")
+                fig.update_layout(yaxis_title="", xaxis_title=t("Items"))
                 show(fig, 460, legend=False)
         with c2:
             em = ins.emerging_terms(sub, exclude=exclude)
             if not em.empty:
                 fig = px.bar(em.iloc[::-1], x="lift", y="term", orientation="h",
-                             title="Emerging in the last 48 hours of the period",
+                             title=t("Emerging in the last 48 hours of the period"),
                              hover_data={"recent": True, "before": True, "lift": ":.2f"})
                 fig.update_traces(marker_color="#eb6834")
-                fig.update_layout(yaxis_title="", xaxis_title="How much more frequent than before (log ratio)")
+                fig.update_layout(yaxis_title="", xaxis_title=t("How much more frequent than before (log ratio)"))
                 show(fig, 460, legend=False)
             else:
-                st.caption("No clearly emerging terms for this subject in the last 48 hours of the period.")
+                st.caption(t("No clearly emerging terms for this subject in the last 48 hours of the period."))
 
         c3, c4 = st.columns(2)
-        link = st.column_config.LinkColumn("Link", display_text="open ↗")
+        link = st.column_config.LinkColumn("Link", display_text=t("open ↗"))
         with c3:
-            st.markdown("**Most engaged social posts**")
+            st.markdown("**" + t("Most engaged social posts") + "**")
             posts = sub[sub["channel"] == "Social media"].sort_values("engagement", ascending=False).head(10)
+            posts = posts.assign(sentiment=posts["sentiment"].map(t), platform_label=posts["platform_label"].map(t))
             st.dataframe(posts[["platform_label", "author", "text", "engagement", "sentiment", "url"]], hide_index=True,
-                         column_config={"platform_label": "Platform", "author": "Author", "text": "Post",
+                         column_config={"platform_label": t("Platform"), "author": t("Author"), "text": t("Post"),
                                         "engagement": st.column_config.NumberColumn(
-                                            "Engagement", help="likes + 2×shares + replies"),
-                                        "sentiment": "Tone", "url": link})
+                                            t("Engagement"), help=t("likes + 2×shares + replies")),
+                                        "sentiment": t("Tone"), "url": link})
         with c4:
-            st.markdown("**Latest headlines**")
+            st.markdown("**" + t("Latest headlines") + "**")
             news = sub[sub["channel"] == "News media"].sort_values("published_at", ascending=False).head(10)
-            news = news.assign(headline=news["title"].fillna(news["text"]))
+            news = news.assign(headline=news["title"].fillna(news["text"]), sentiment=news["sentiment"].map(t))
             st.dataframe(news[["source", "headline", "sentiment", "url"]], hide_index=True,
-                         column_config={"source": "Outlet", "headline": "Headline", "sentiment": "Tone", "url": link})
+                         column_config={"source": t("Outlet"), "headline": t("Headline"), "sentiment": t("Tone"),
+                                        "url": link})
 
 # ----------------------------------------------------------------------------- 7. explorer
 
 with tabs[6]:
-    st.caption(f"{len(df):,} items match the filters in the sidebar (newest first; the table shows up to 3,000).")
+    st.caption(t("{n} items match the filters in the sidebar (newest first; the table shows up to 3,000).",
+                 n=f"{len(df):,}"))
     ex = df.sort_values("published_at", ascending=False)
     table = ex.assign(parties=ex["parties"].apply(", ".join), issues=ex["issues"].apply(", ".join),
                       published=ex["published_at"].dt.tz_convert(ins.TZ).dt.strftime("%d-%m-%Y %H:%M"),
-                      method=ex["analysed_by"].map({"llm": "AI"}).fillna("keywords"))
+                      method=ex["analysed_by"].map({"llm": "AI"}).fillna(t("keywords")),
+                      sentiment=ex["sentiment"].map(t), platform_label=ex["platform_label"].map(t))
     st.dataframe(table[["published", "platform_label", "source", "author", "text", "parties", "issues", "sentiment",
                         "sentiment_score", "method", "engagement", "url"]].head(3000), hide_index=True, height=600,
-                 column_config={"published": "Time", "platform_label": "Platform", "source": "Source",
-                                "author": "Author", "text": st.column_config.TextColumn("Text", width="large"),
-                                "parties": "Parties", "issues": "Issues", "sentiment": "Tone",
+                 column_config={"published": t("Time ").strip(), "platform_label": t("Platform"), "source": t("Source"),
+                                "author": t("Author"), "text": st.column_config.TextColumn(t("Text"), width="large"),
+                                "parties": t("Parties"), "issues": t("Issues"), "sentiment": t("Tone"),
                                 "sentiment_score": st.column_config.ProgressColumn(
-                                    "Score", min_value=-1, max_value=1, format="%+.2f"),
-                                "method": "Labelled by", "engagement": "Engagement",
-                                "url": st.column_config.LinkColumn("Link", display_text="open ↗")})
-    st.download_button("⬇️ Download selection (CSV)", table.drop(columns=["is_pos", "is_neg"]).to_csv(index=False).encode(),
+                                    t("Score"), min_value=-1, max_value=1, format="%+.2f"),
+                                "method": t("Labelled by"), "engagement": t("Engagement"),
+                                "url": st.column_config.LinkColumn("Link", display_text=t("open ↗"))})
+    st.download_button(t("⬇️ Download selection (CSV)"), table.drop(columns=["is_pos", "is_neg"]).to_csv(index=False).encode(),
                        "political_media_monitor.csv", "text/csv")
 
 # ----------------------------------------------------------------------------- 8. methodology
 
 with tabs[7]:
-    st.markdown(f"""
+    n_issues = len(ENTITIES["issues"])
+    if LANG == "nl":
+        st.markdown(f"""
+#### Wat wordt gemeten
+- **Items**: nieuwsartikelen (RSS-feeds van Nederlandse media, Google News, GDELT) en openbare berichten op sociale
+  media (Mastodon, Reddit, YouTube, Telegram, Bluesky, optioneel X). Alleen items over Nederlandse politiek worden
+  bewaard. Dezelfde kop via meerdere nieuwsbronnen telt één keer.
+- **Partijen, thema's en toon** worden beoordeeld door een AI-model (Google Gemini) dat elk item leest en kiest uit
+  de vaste lijst partijen en {n_issues} thema's in `config/entities.yaml`. Items die de AI nog niet kon labelen
+  (gratis dagquotum) krijgen labels via trefwoorden en een meertalig sentimentmodel; de kolom "Gelabeld door" in
+  de Verkenner laat zien welke. **Netto sentiment** = % positieve − % negatieve items.
+- **Geschiedenis**: het afgelopen jaar is één keer verzameld uit Google News (week voor week), GDELT en Mastodon;
+  daarna wordt alles elke 6 uur verzameld. Oudere items krijgen geleidelijk AI-labels.
+- **Signalen**: vermeldingen in de laatste 24 uur vergeleken met de twee weken ervoor; gemarkeerd bij minstens
+  2 standaardafwijkingen boven normaal.
+
+#### Kleuren
+- Elke partij houdt overal haar eigen kleur. Toon is **blauw = positief, grijs = neutraal, rood = negatief**
+  (goed leesbaar bij kleurenblindheid). Heatmaps lopen van licht (weinig) naar donkerblauw (veel).
+
+#### Verantwoord lezen
+- Sentiment gaat over de **toon van de tekst**, niet per se over de partij. Vergelijk partijen en trends in plaats
+  van losse getallen te vertrouwen.
+- Sociale media zijn **niet representatief** voor het electoraat: actieve gebruikers, bots en campagnes zijn
+  oververtegenwoordigd.
+- Koppen uit Google News en GDELT zijn kort, dus hun sentiment is minder zeker dan bij volledige berichten.
+- De strepen in de sentimentgrafiek tonen onzekerheid: kleine partijen met weinig vermeldingen hebben brede
+  intervallen.
+""")
+    else:
+        st.markdown(f"""
 #### What is measured
 - **Items**: news articles (RSS feeds of Dutch outlets, Google News, GDELT) and public social-media posts
   (Mastodon, Reddit, YouTube, Telegram, Bluesky, optionally X). Only items about Dutch politics are kept.
   The same headline arriving via several news sources is counted once.
 - **Parties, issues and tone** are judged by an AI model (Google Gemini) that reads each item and picks from the
-  fixed list of parties and {len(ENTITIES['issues'])} issues in `config/entities.yaml`. Items the AI could not
+  fixed list of parties and {n_issues} issues in `config/entities.yaml`. Items the AI could not
   label yet (daily free quota) use keyword matching and a multilingual sentiment model; the Explorer's
   "Labelled by" column shows which. **Net sentiment** = % positive − % negative items.
 - **History**: the past year was collected once from Google News (week by week), GDELT and Mastodon; since then
