@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from monitor import collectors as col  # noqa: E402
 from monitor import insights as ins  # noqa: E402
-from monitor import nlp, pipeline  # noqa: E402
+from monitor import llm, nlp, pipeline  # noqa: E402
 from monitor.common import load_yaml, make_item, to_iso  # noqa: E402
 from monitor.demo import make_demo_items  # noqa: E402
 from monitor.storage import LocalStore, to_frame  # noqa: E402
@@ -69,6 +70,64 @@ def test_analyse_drops_irrelevant(tagger):
              make_item("news", "NOS", "Voetbaluitslagen van het weekend", url="u2")]
     kept, used = nlp.analyse(items, tagger, backend="lexicon")
     assert len(kept) == 1 and "Kabinet & formatie" in kept[0]["issues"] and used == "lexicon"
+
+
+# ----------------------------------------------------------------------------- LLM classification
+
+class _FakeMessages:
+    def __init__(self, reply, stop_reason="end_turn"):
+        self.reply, self.stop_reason, self.calls = reply, stop_reason, []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        block = type("B", (), {"type": "text", "text": json.dumps(self.reply)})()
+        return type("R", (), {"content": [block], "stop_reason": self.stop_reason})()
+
+
+class _FakeClient:
+    def __init__(self, *a, **k):
+        self.messages = _FakeMessages(*a, **k)
+
+
+PARTIES, ISSUES = ["PVV", "D66"], ["Wonen", "Zorg"]
+
+
+def _res(i, **kw):
+    base = {"i": i, "relevant": True, "parties": [], "issues": [], "sentiment": "neutral", "score": 0.0}
+    return {**base, **kw}
+
+
+def test_llm_classify_validates_and_fixes_results():
+    fake = _FakeClient({"results": [
+        _res(0, parties=["PVV", "Fantasie"], issues=["Wonen"], sentiment="negative", score=0.7),   # sign fixed, name dropped
+        _res(1, relevant=False)]})
+    out = llm.classify([{"text": "a", "platform": "x"}, {"text": "b", "platform": "x"}], PARTIES, ISSUES, client=fake)
+    assert out[0] == {"relevant": True, "parties": ["PVV"], "issues": ["Wonen"], "sentiment": "negative", "score": -0.7}
+    assert out[1]["relevant"] is False
+    call = fake.messages.calls[0]
+    assert call["output_config"]["format"]["type"] == "json_schema" and "Dutch" in call["system"]
+
+
+def test_llm_missing_or_refused_batch_gives_none():
+    assert llm.classify([{"text": "a", "platform": "x"}], PARTIES, ISSUES, client=_FakeClient({"results": []})) == [None]
+    refused = _FakeClient({"results": []}, stop_reason="refusal")
+    assert llm.classify([{"text": "a", "platform": "x"}], PARTIES, ISSUES, client=refused) == [None]
+
+
+def test_analyse_uses_llm_then_falls_back(tagger, monkeypatch):
+    items = [make_item("news", "NOS", "Wilders over huurprijzen", url="u1"),
+             make_item("news", "NOS", "Wilders en de zorg: een geweldig plan", url="u2"),
+             make_item("news", "NOS", "Zorg kost veel", url="u3")]
+    answers = [{"relevant": True, "parties": ["PVV"], "issues": ["Wonen"], "sentiment": "negative", "score": -0.6},
+               None,
+               {"relevant": False, "parties": [], "issues": [], "sentiment": "neutral", "score": 0.0}]
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "classify", lambda *a, **k: answers)
+    kept, used = nlp.analyse(items, tagger)
+    by_url = {i["url"]: i for i in kept}
+    assert set(by_url) == {"u1", "u2"} and used.startswith("llm+")
+    assert by_url["u1"]["sentiment"] == "negative" and by_url["u1"]["issues"] == ["Wonen"]
+    assert by_url["u2"]["sentiment"] == "positive"          # lexicon fallback for the item the LLM skipped
 
 
 # ----------------------------------------------------------------------------- collectors (offline fixtures)

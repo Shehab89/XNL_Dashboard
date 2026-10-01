@@ -99,7 +99,7 @@ def main(argv=None):
     p_run = sub.add_parser("run", help="collect, analyse and store")
     p_run.add_argument("--only", help="comma-separated sources, e.g. news,google_news,bluesky")
     p_run.add_argument("--hours", type=int, help="look back this many hours (default from sources.yaml)")
-    p_run.add_argument("--backend", choices=["local", "api", "lexicon"], help="sentiment backend")
+    p_run.add_argument("--backend", choices=["llm", "local", "api", "lexicon"], help="sentiment backend")
     p_run.add_argument("--retention-days", type=int, default=180, help="delete items older than this")
     p_run.add_argument("--extra-json", help="also analyse items from this JSON file (e.g. the X scraper output)")
     p_run.add_argument("--require-db", action="store_true", help="fail unless Supabase is configured")
