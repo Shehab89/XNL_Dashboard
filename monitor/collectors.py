@@ -244,26 +244,46 @@ def collect_telegram(cfg, http, since, **_):
     for channel in (cfg.get("telegram") or {}).get("channels", []):
         page = http.get(f"https://t.me/s/{channel}")
         if page:
-            items += [i for i in parse_telegram(page, channel) if _recent(i["published_at"], since)]
+            found = [i for i in parse_telegram(page, channel) if _recent(i["published_at"], since)]
+            log.info("  telegram %s: %d recent posts", channel, len(found))
+            items += found
     return items
 
 
 # --------------------------------------------------------------------------- YouTube
 
+_CHANNEL_ID = re.compile(r'(?:"channelId":"|"externalId":"|channel_id=|/channel/)(UC[\w-]{22})')
+
+
+def resolve_youtube_channel(http, ref):
+    """A channel ID (UC...) as is; an @handle is looked up on the channel page. None when it cannot be found."""
+    if re.fullmatch(r"UC[\w-]{22}", ref):
+        return ref
+    page = http.get(f"https://www.youtube.com/{ref if ref.startswith('@') else '@' + ref}")
+    match = _CHANNEL_ID.search(page or "")
+    if not match:
+        log.warning("YouTube channel %s not found (check the handle in config/sources.yaml)", ref)
+    return match.group(1) if match else None
+
+
 def collect_youtube(cfg, http, since, **_):
     items = []
-    for name, channel_id in ((cfg.get("youtube") or {}).get("channels") or {}).items():
-        xml = http.get("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id})
+    for name, ref in ((cfg.get("youtube") or {}).get("channels") or {}).items():
+        channel_id = resolve_youtube_channel(http, ref)
+        xml = http.get("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id}) if channel_id else None
         if not xml:
             continue
+        found = 0
         for e in feedparser.parse(xml).entries:
             published = to_iso(e.get("published_parsed"))
             if not _recent(published, since):
                 continue
+            found += 1
             stats = e.get("media_statistics") or {}
             items.append(make_item("youtube", f"YouTube: {name}", f"{e.get('title', '')}. {e.get('summary', '')}",
                                    url=e.get("link"), uid=e.get("id"), title=e.get("title"), author=name,
                                    published_at=published, lang="nl", likes=_count(stats.get("views"))))
+        log.info("  youtube %s: %d recent videos", name, found)
     return items
 
 

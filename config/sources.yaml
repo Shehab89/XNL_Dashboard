@@ -49,10 +49,17 @@ reddit:
 telegram:
   channels: []
 
-# YouTube: channel uploads via RSS (titles + descriptions). Add channel IDs (start with "UC"),
-# found in the channel page source or via "Share channel -> Copy channel ID".
+# YouTube: channel uploads via RSS (titles + descriptions). Use the channel's @handle (looked up on every run)
+# or its channel ID (starts with "UC"). Handles that cannot be found are logged and skipped.
 youtube:
-  channels: {}
-  # example:  NOS: UCxxxxxxxxxxxxxxxxxxxxxx
+  channels:
+    NOS: "@NOS"
+    Nieuwsuur: "@Nieuwsuur"
+    EenVandaag: "@EenVandaag"
+    RTL Nieuws: "@RTLNieuws"
+    De Telegraaf: "@telegraaf"
+    Tweede Kamer: "@tweedekamer"
+    Op1: "@Op1"
+    BNNVARA: "@BNNVARA"
 
 # X / Twitter: optional, see scraper/ (needs your own X login cookies; use at your own risk).

@@ -227,6 +227,17 @@ def test_search_queries_cover_parties_and_issues():
     assert "Wilders" in queries["PVV"] and len(queries) == len(entities["parties"]) + len(entities["issues"])
 
 
+def test_youtube_handle_resolution():
+    class FakeHttp:
+        def get(self, url, params=None):
+            return '<meta itemprop="identifier" content="x"><script>{"channelId":"UCExcZNwh_3Mwm4fF4VSiu2w"}</script>' \
+                if "@Nieuwsuur" in url else None
+
+    assert col.resolve_youtube_channel(FakeHttp(), "UCExcZNwh_3Mwm4fF4VSiu2w") == "UCExcZNwh_3Mwm4fF4VSiu2w"
+    assert col.resolve_youtube_channel(FakeHttp(), "@Nieuwsuur") == "UCExcZNwh_3Mwm4fF4VSiu2w"
+    assert col.resolve_youtube_channel(FakeHttp(), "@bestaatniet") is None
+
+
 def test_collect_all_survives_broken_source(monkeypatch):
     monkeypatch.setitem(col.COLLECTORS, "news", lambda cfg, **k: (_ for _ in ()).throw(RuntimeError("down")))
     monkeypatch.setitem(col.COLLECTORS, "bluesky", lambda cfg, **k: [make_item("bluesky", "Bluesky", "PVV", uid="1")])
