@@ -6,6 +6,9 @@ import { partyById, topicById } from "../../data/reference";
 import type { PartyTopicLink } from "../../types";
 import { fmtInt } from "../../utils/format";
 
+/** The strongest party–topic pairs, so the chart stays readable for any period or filter. */
+export const topLinks = (links: PartyTopicLink[], k = 45, min = 3) => [...links].sort((a, b) => b.n - a.n).filter((l) => l.n >= min).slice(0, k);
+
 /**
  * "Verbanden": which parties appear in the same items as which topics. Parties on the left, topics on the right,
  * each ribbon as wide as the number of shared items. Hover or focus a name to isolate its connections.
@@ -58,10 +61,10 @@ export function Arcs({ links, focus, height }: { links: PartyTopicLink[]; focus?
           if (a == null || b == null) return null;
           const y1 = py(a), y2 = ty(b), x1 = leftX + 8, x2 = rightX - 8, mx = (x1 + x2) / 2;
           const on = isOn(l);
-          const color = active?.kind === "party" ? partyById.get(l.party)?.color ?? "var(--ink)" : "var(--ink)";
+          const color = partyById.get(l.party)?.color ?? "var(--ink)";
           return (
             <path key={l.party + l.topic} className="link" d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
-              stroke={on && active ? color : "var(--ink)"} strokeOpacity={on ? (active ? 0.6 : 0.16) : 0.04}
+              stroke={on ? color : "var(--ink)"} strokeOpacity={on ? (active ? 0.7 : 0.3) : 0.04}
               strokeWidth={Math.max(1, Math.sqrt(l.n / max) * (narrow ? 10 : 16))}>
               <title>{`${label("party", l.party)} · ${label("topic", l.topic)}: ${fmtInt(l.n, lang)} ${t("gedeelde berichten", "shared items")}`}</title>
             </path>
@@ -87,8 +90,8 @@ export function Arcs({ links, focus, height }: { links: PartyTopicLink[]; focus?
         })}
       </svg>
       <p className="chart-caption">
-        {t("Lijndikte: aantal berichten waarin partij en onderwerp samen voorkomen (minimaal 8). Samen genoemd zegt niets over standpunt.",
-          "Line width: number of items mentioning both party and topic (at least 8). Being mentioned together says nothing about position.")}
+        {t("Lijndikte: aantal berichten waarin partij en onderwerp samen voorkomen (de sterkste verbanden). Samen genoemd zegt niets over standpunt.",
+          "Line width: number of items mentioning both party and topic (the strongest links). Being mentioned together says nothing about position.")}
       </p>
     </div>
   );

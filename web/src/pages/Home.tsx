@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AttentionChart } from "../components/charts/AttentionChart";
-import { Arcs } from "../components/charts/Arcs";
+import { Arcs, topLinks } from "../components/charts/Arcs";
 import { Hemicycle } from "../components/charts/Hemicycle";
 import { Sparkline } from "../components/charts/Sparkline";
 import { usePeriodLabel } from "../components/FilterBar";
-import { Delta, HeadlineList, LayerTag, SectionHead, Source } from "../components/ui";
+import { Delta, EmptyState, HeadlineList, LayerTag, SectionHead, Source } from "../components/ui";
 import { WithData } from "../components/WithData";
 import { PARTIES, REF, partyById, politicianById, topicById } from "../data/reference";
 import { useFilters } from "../hooks/useFilters";
@@ -40,6 +40,7 @@ function HomeView({ data }: { data: MonitorData }) {
   const latest = [...data.headlines].sort((a, b) => b.date.localeCompare(a.date))
     .filter((h, i, all) => all.findIndex((x) => x.url === h.url) === i).slice(0, 6);
   const liveLatest = useHeadlines(data, latest).slice(0, 6);
+  const arcs = topLinks(data.links);
   const from = chartStart(data.weeks.length, f.period);
 
   const submit = (e: React.FormEvent) => { e.preventDefault(); if (q.trim()) navigate(`/zoeken?q=${encodeURIComponent(q.trim())}`); };
@@ -117,6 +118,15 @@ function HomeView({ data }: { data: MonitorData }) {
           "Percentage: change against the period before. Older weeks were collected afterwards and are thinner, so recent rises are partly method.")} />
       </section>
 
+      <section className="section">
+        <SectionHead title={t("Welke partij hoort bij welk onderwerp?", "Which party goes with which topic?")} aside={<LayerTag layer="data" />}>
+          {t(`Partijen en onderwerpen die samen in het nieuws komen, ${periodLabel}. Beweeg over een naam.`, `Parties and topics in the news together, ${periodLabel}. Hover a name.`)}
+        </SectionHead>
+        {arcs.length ? <Arcs links={arcs} /> : <EmptyState title={t("Te weinig berichten voor deze filters.", "Too few items for these filters.")} />}
+        <Source sources={[MONITOR_SOURCE]} method={t("Lijndikte: berichten waarin beide genoemd worden. Samen genoemd zegt niets over standpunt.",
+          "Line width: items naming both. Being mentioned together says nothing about position.")} />
+      </section>
+
       <section className="section grid-12">
         <div className="span-8">
           <SectionHead title={t("Aandacht per week, top 5 onderwerpen", "Weekly attention, top 5 topics")} aside={<LayerTag layer="data" />} />
@@ -135,14 +145,6 @@ function HomeView({ data }: { data: MonitorData }) {
         </div>
       </section>
 
-      <section className="section">
-        <SectionHead title={t("Welke partij hoort bij welk onderwerp?", "Which party goes with which topic?")} aside={<LayerTag layer="data" />}>
-          {t("In de gekozen periode. Beweeg over een naam.", "In the selected period. Hover a name.")}
-        </SectionHead>
-        <Arcs links={data.links.filter((l) => l.n >= 40)} />
-        <Source sources={[MONITOR_SOURCE]} method={t("Lijndikte: berichten waarin beide genoemd worden. Samen genoemd zegt niets over standpunt.",
-          "Line width: items naming both. Being mentioned together says nothing about position.")} />
-      </section>
     </div>
   );
 }

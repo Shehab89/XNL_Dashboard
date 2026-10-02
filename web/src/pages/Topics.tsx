@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Breadcrumbs, Delta, LayerTag, Source } from "../components/ui";
+import { Arcs, topLinks } from "../components/charts/Arcs";
+import { Breadcrumbs, Delta, EmptyState, LayerTag, SectionHead, Source } from "../components/ui";
 import { WithData } from "../components/WithData";
 import { topicById } from "../data/reference";
 import { usePeriodLabel } from "../components/FilterBar";
@@ -24,6 +25,7 @@ function TopicsView({ data }: { data: MonitorData }) {
   const periodLabel = usePeriodLabel();
   const [sort, setSort] = useState<"recent" | "change">("recent");
   const from = chartStart(data.weeks.length, f.period);
+  const arcs = topLinks(data.links);
   const rows = rank(data.topic, f, data.partialWeek).filter((m) => topicById.has(m.id));
   if (sort === "change") rows.sort((a, b) => (b.change ?? -9) - (a.change ?? -9));
   const max = Math.max(1, ...rows.map((r) => Math.max(...r.weekly.slice(from, -1))));
@@ -62,6 +64,10 @@ function TopicsView({ data }: { data: MonitorData }) {
           );
         })}
       </ol>
+      <section className="section">
+        <SectionHead title={t("Welke partij hoort bij welk onderwerp?", "Which party goes with which topic?")} aside={<LayerTag layer="data" />} />
+        {arcs.length ? <Arcs links={arcs} /> : <EmptyState title={t("Te weinig berichten voor deze filters.", "Too few items for these filters.")} />}
+      </section>
       <Source sources={[MONITOR_SOURCE]} method={t("Een bericht kan bij meerdere onderwerpen horen. Toewijzing via trefwoorden en, voor een deel, een taalmodel.",
         "An item can belong to several topics. Assigned by keywords and, for a share, a language model.")} />
     </div>
