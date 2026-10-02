@@ -6,7 +6,7 @@ answer is constrained to a JSON schema, so every label comes from the fixed list
 falls back to the local model / lexicon.
 
 Settings (environment): GEMINI_API_KEY or ANTHROPIC_API_KEY, LLM_MODEL (default
-gemini-2.5-flash,gemini-2.5-flash-lite for Gemini, claude-opus-5-5 for Claude; a comma-separated list is tried in
+gemini-2.5-flash, -flash-lite, flash-latest, flash-lite-latest for Gemini, claude-opus-5-5 for Claude; a comma-separated list is tried in
 order), LLM_BATCH_SIZE (default 60), LLM_WORKERS (default 1 for Gemini, 4 for Claude).
 
 Gemini's free tier allows only a small number of requests per day per model, so items are sent in large batches,
@@ -24,7 +24,8 @@ import requests
 
 from .common import env, log
 
-DEFAULT_MODELS = {"gemini": "gemini-2.5-flash,gemini-2.5-flash-lite", "claude": "claude-opus-5-5"}
+DEFAULT_MODELS = {"gemini": "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-flash-latest,gemini-flash-lite-latest",
+                  "claude": "claude-opus-5-5"}
 DEFAULT_WORKERS = {"gemini": 1, "claude": 4}
 
 
@@ -40,10 +41,11 @@ media posts (mostly Dutch, some English) and classify each one on four points.
 
 1. relevant (true/false)
    True only when the item is about Dutch politics or public policy: Dutch parties, politicians, the cabinet, \
-parliament, elections, or a policy debate that concerns the Netherlands. False for sports, entertainment, \
-crime reports with no policy angle, foreign politics with no Dutch angle, adverts, and posts where a party \
-name or issue word is used in a non-political sense (e.g. "SP" as an abbreviation, "zorgen maken" meaning \
-"to worry").
+parliament, provincial or municipal councils, elections, or a policy debate that concerns the Netherlands. \
+False for sports, entertainment, accidents, traffic, riots and crime reports with no policy angle, \
+Belgian/Flemish news (Dutch-language but not about the Netherlands), foreign politics with no Dutch angle, \
+business or technology news with no policy angle, adverts, lists of names, and posts where a party name or \
+issue word is used in a non-political sense (e.g. "SP" as an abbreviation, "zorgen maken" meaning "to worry").
 
 2. parties - the Dutch parties the item is substantially about. Use only names from the allowed list. A party \
 counts when it, its leader or its MPs/ministers are a subject of the item; a passing mention does not. \
@@ -134,6 +136,8 @@ class GeminiClient:
                                   headers={"x-goog-api-key": self.api_key})
             if r.status_code == 429 and "PerDay" in r.text:
                 raise QuotaExhausted(f"Gemini daily quota for {model} used up")
+            if r.status_code == 404:  # model name not offered (any more): move on to the next model
+                raise QuotaExhausted(f"Gemini model {model} is not available")
             if r.status_code not in (429, 500, 502, 503, 504) or attempt == 3:
                 break
             time.sleep(_retry_delay(r.text, default=10 * (attempt + 1)))

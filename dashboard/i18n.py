@@ -2,6 +2,14 @@
 the dashboard is switched to Nederlands. A text without a translation is shown in English."""
 
 NL = {
+    # data-quality notes
+    "**{share} of these items have AI labels.** The rest are labelled by a simpler keyword model that marks more headlines negative than the AI does, so tone here leans negative. AI labelling catches up every run; switch on *AI-labelled only* in the sidebar for the most reliable tone.":
+        "**{share} van deze items heeft een AI-label.** De rest is gelabeld door een eenvoudiger trefwoordmodel dat meer koppen negatief noemt dan de AI, dus de toon valt hier negatiever uit. De AI haalt elke run een deel in; zet *alleen AI-gelabeld* aan in de zijbalk voor de betrouwbaarste toon.",
+    "average {value}": "gemiddeld {value}",
+    "Share of voice counts items that mention a party. Net sentiment = % positive items − % negative items; bubble size = number of mentions; the whisker shows the statistical uncertainty. Compare a party with the dashed average line rather than with zero: headlines are on balance negative for everyone.":
+        "Share of voice telt items die een partij noemen. Netto sentiment = % positieve − % negatieve items; bolgrootte = aantal vermeldingen; de streep toont de statistische onzekerheid. Vergelijk een partij met de gestippelde gemiddelde lijn in plaats van met nul: koppen zijn per saldo voor iedereen negatief.",
+    "The dotted line marks {day}: before it the history was collected once from weekly news searches, after it the regular collection runs every 6 hours. Compare tone across the line, not volume.":
+        "De stippellijn markeert {day}: daarvoor is de geschiedenis één keer verzameld met wekelijkse nieuwszoekopdrachten, daarna loopt de reguliere verzameling elke 6 uur. Vergelijk over de lijn heen de toon, niet het volume.",
     # page and sidebar
     "Dutch Political Media Monitor": "Politieke Mediamonitor Nederland",
     "Political Media Monitor": "Politieke Mediamonitor",
@@ -102,10 +110,6 @@ NL = {
     "Net sentiment {value}": "Netto sentiment {value}",
     "{n} mentions": "{n} vermeldingen",
     "positive {pos} · negative {neg}": "positief {pos} · negatief {neg}",
-    "Share of voice counts items that mention a party. Net sentiment = % positive items − % negative items; bubble "
-    "size = number of mentions; the whisker shows the statistical uncertainty.":
-        "Share of voice telt items die een partij noemen. Netto sentiment = % positieve items − % negatieve items; "
-        "grootte van de bol = aantal vermeldingen; de streep toont de statistische onzekerheid.",
     # trends
     "Choose a longer period to see trends.": "Kies een langere periode om trends te zien.",
     "Items per {unit}, by tone": "Items per {unit}, naar toon",

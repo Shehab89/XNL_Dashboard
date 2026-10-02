@@ -37,6 +37,9 @@ ENTITIES = load_yaml("entities.yaml")
 #  * amounts (heatmaps) use one blue ramp from light to dark.
 PARTY_COLORS = {name: spec.get("color", "#898781") for name, spec in ENTITIES["parties"].items()}
 POS, NEU, NEG = "#2a78d6", "#b9b8b0", "#e34948"
+# Before this day items come from the one-off year backfill (weekly news searches, capped per query); from this day
+# on from the regular 6-hourly collection, which finds more per day. Volumes on either side are not comparable.
+LIVE_SINCE = pd.Timestamp("2026-10-01")
 TONE_COLORS = {"positive": POS, "neutral": NEU, "negative": NEG}
 TONE_ORDER = ["negative", "neutral", "positive"]
 CHANNEL_COLORS = {"News media": "#4a3aa7", "Social media": "#eb6834"}
@@ -312,6 +315,13 @@ with tabs[0]:
                 t("{share} of issue mentions", share=f"{issues_sov.iloc[0]['share']:.0%}") if len(issues_sov) else None,
                 delta_color="off", delta_arrow="off")
 
+    ai_share = (df["analysed_by"] == "llm").mean()
+    if ai_share < 0.5 and not demo:
+        st.info(t("**{share} of these items have AI labels.** The rest are labelled by a simpler keyword model that "
+                  "marks more headlines negative than the AI does, so tone here leans negative. AI labelling catches up "
+                  "every run; switch on *AI-labelled only* in the sidebar for the most reliable tone.",
+                  share=f"{ai_share:.0%}"), icon="🤖")
+
     left, right = st.columns([3, 2])
     with left:
         st.subheader(t("Key findings"))
@@ -356,11 +366,15 @@ with tabs[0]:
                           t("positive {pos} · negative {neg}", pos="%{customdata[1]:.0%}", neg="%{customdata[2]:.0%}") +
                           "<extra></extra>"))
         fig.add_vline(x=0, line_dash="dot", line_color="gray")
+        fig.add_vline(x=net_all, line_dash="dash", line_color="#52514e", line_width=1,
+                      annotation_text=t("average {value}", value=f"{net_all:+.0f}"), annotation_position="top",
+                      annotation_font_size=11)
         fig.update_layout(title=t("Net sentiment per party (±95% interval)"), xaxis_title=t("% positive − % negative"),
                           yaxis_title="")
         show(fig, 420, legend=False)
     note(t("Share of voice counts items that mention a party. Net sentiment = % positive items − % negative items; "
-           "bubble size = number of mentions; the whisker shows the statistical uncertainty."))
+           "bubble size = number of mentions; the whisker shows the statistical uncertainty. Compare a party with the "
+           "dashed average line rather than with zero: headlines are on balance negative for everyone."))
 
 # ----------------------------------------------------------------------------- 2. trends
 
@@ -369,12 +383,23 @@ with tabs[1]:
         st.caption(t("Choose a longer period to see trends."))
     else:
         vol = df.groupby(["date", "sentiment"]).size().reset_index(name="items")
+        mark_live = df["date"].min() < LIVE_SINCE <= df["date"].max()
+        if mark_live:
+            note(t("The dotted line marks {day}: before it the history was collected once from weekly news searches, "
+                   "after it the regular collection runs every 6 hours. Compare tone across the line, not volume.",
+                   day=f"{LIVE_SINCE:%d-%m-%Y}"))
+
+        def live_line(fig):
+            if mark_live:
+                fig.add_vline(x=LIVE_SINCE.timestamp() * 1000, line_dash="dot", line_color="#52514e", line_width=1)
+            return fig
+
         c1, c2 = st.columns([3, 2])
         with c1:
             fig = px.bar(vol, x="date", y="items", color="sentiment", color_discrete_map=TONE_COLORS,
                          category_orders={"sentiment": TONE_ORDER}, title=t("Items per {unit}, by tone", unit=unit))
             fig.update_layout(xaxis_title="", yaxis_title=t("Items per {unit}", unit=unit), hovermode="x unified")
-            show(fig, 380)
+            show(live_line(fig), 380)
         with c2:
             net = df.groupby("date").agg(n=("id", "size"), pos=("is_pos", "sum"), neg=("is_neg", "sum"))
             net = net[net["n"] >= 5]
@@ -386,7 +411,7 @@ with tabs[1]:
             fig.add_hline(y=0, line_color="gray", line_width=1)
             fig.update_layout(title=t("Overall net tone per {unit}", unit=unit), yaxis_title=t("% positive − % negative"),
                               xaxis_title="")
-            show(fig, 380, legend=False)
+            show(live_line(fig), 380, legend=False)
 
         def heat(col, names, title):
             ex = ins.explode(df, col)
@@ -411,7 +436,7 @@ with tabs[1]:
                       title=t("Where the items came from, per {unit}", unit=unit))
         fig.update_traces(line=dict(width=1))
         fig.update_layout(xaxis_title="", yaxis_title=t("Items per {unit}", unit=unit), hovermode="x unified")
-        show(fig, 340)
+        show(live_line(fig), 340)
 
 # ----------------------------------------------------------------------------- 3. parties
 
@@ -687,7 +712,10 @@ with tabs[7]:
   (gratis dagquotum) krijgen labels via trefwoorden en een meertalig sentimentmodel; de kolom "Gelabeld door" in
   de Verkenner laat zien welke. **Netto sentiment** = % positieve − % negatieve items.
 - **Geschiedenis**: het afgelopen jaar is één keer verzameld uit Google News (week voor week), GDELT en Mastodon;
-  daarna wordt alles elke 6 uur verzameld. Oudere items krijgen geleidelijk AI-labels.
+  sinds 1 oktober 2026 wordt alles elke 6 uur verzameld. De wekelijkse zoekopdrachten leveren minder items per week
+  op dan de reguliere verzameling, dus vergelijk over die datum de **toon**, niet het volume (stippellijn bij
+  Trends). Oudere items krijgen geleidelijk AI-labels, nieuwste eerst; de AI verwijdert ook items die niet over
+  Nederlandse politiek gaan.
 - **Signalen**: vermeldingen in de laatste 24 uur vergeleken met de twee weken ervoor; gemarkeerd bij minstens
   2 standaardafwijkingen boven normaal.
 
@@ -701,6 +729,9 @@ with tabs[7]:
 - Sociale media zijn **niet representatief** voor het electoraat: actieve gebruikers, bots en campagnes zijn
   oververtegenwoordigd.
 - Koppen uit Google News en GDELT zijn kort, dus hun sentiment is minder zeker dan bij volledige berichten.
+- Het trefwoordmodel voor items zonder AI-label noemt meer koppen negatief dan de AI. Zolang de meeste items nog
+  geen AI-label hebben, valt de toon negatiever uit: vergelijk partijen met het gemiddelde, of zet *alleen
+  AI-gelabeld* aan.
 - De strepen in de sentimentgrafiek tonen onzekerheid: kleine partijen met weinig vermeldingen hebben brede
   intervallen.
 """)
@@ -714,8 +745,10 @@ with tabs[7]:
   fixed list of parties and {n_issues} issues in `config/entities.yaml`. Items the AI could not
   label yet (daily free quota) use keyword matching and a multilingual sentiment model; the Explorer's
   "Labelled by" column shows which. **Net sentiment** = % positive − % negative items.
-- **History**: the past year was collected once from Google News (week by week), GDELT and Mastodon; since then
-  everything is collected every 6 hours. Older items get AI labels gradually.
+- **History**: the past year was collected once from Google News (week by week), GDELT and Mastodon; since
+  1 October 2026 everything is collected every 6 hours. The weekly searches return fewer items per week than the
+  regular collection, so compare **tone**, not volume, across that date (dotted line in Trends). Older items get
+  AI labels gradually, newest first; the AI also removes items it finds are not about Dutch politics.
 - **Alerts**: mentions in the last 24 hours compared with the previous two weeks; flagged when at least
   2 standard deviations above normal.
 
@@ -728,5 +761,8 @@ with tabs[7]:
   rather than trusting single numbers.
 - Social media is **not representative** of the electorate: active users, bots and campaigns are over-represented.
 - Headlines from Google News and GDELT are short, so their sentiment is less certain than full posts.
+- The keyword model used for items without AI labels marks more headlines negative than the AI does. Until most
+  items have AI labels, overall tone leans negative: compare parties with the average, or switch on *AI-labelled
+  only*.
 - The whiskers on the sentiment chart show uncertainty: small parties with few mentions have wide intervals.
 """)

@@ -59,7 +59,7 @@ python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -r requirements-model.txt
 ```
 
-For the best sentiment and topic labels, set `GEMINI_API_KEY` (Google Gemini, default model `gemini-flash-latest`) or `ANTHROPIC_API_KEY` (Claude): the LLM then decides for every candidate item whether it is about Dutch politics, which parties and issues it covers, and its sentiment (the prompt is in `monitor/llm.py`). Set `LLM_MODEL` to pick another model. Without a key, or when a call fails, the local model and word list are used.
+For the best sentiment and topic labels, set `GEMINI_API_KEY` (Google Gemini, models `gemini-2.5-flash`, then `gemini-2.5-flash-lite`, `gemini-flash-latest` and `gemini-flash-lite-latest` as each free daily quota runs out) or `ANTHROPIC_API_KEY` (Claude): the LLM then decides for every candidate item whether it is about Dutch politics, which parties and issues it covers, and its sentiment (the prompt is in `monitor/llm.py`). Set `LLM_MODEL` to pick another model. Without a key, or when a call fails, the local model and word list are used.
 
 For Bluesky, copy `.env.example` to `.env` and fill in `BSKY_HANDLE` and `BSKY_APP_PASSWORD`.
 
@@ -85,7 +85,7 @@ The full setup uses three free services: **GitHub Actions** collects every 6 hou
 
 Then go to **Actions → "Political Media Monitor" → Run workflow** to start the first collection. After that it runs by itself every 6 hours. The sentiment model runs inside GitHub Actions, which is free for public repos, so no Hugging Face key is needed.
 
-**One-off: the past year.** Run the same workflow once with **backfill_days = 365**. It collects Google News week by week, GDELT (last three months) and Mastodon hashtag history, slowly and with random pauses so the sources do not block it (about 3–4 hours). If a source starts refusing, it stops and logs the date to resume from; run it again with **backfill_until** set to that date. Backfilled items first get keyword + sentiment-model labels; every regular run then spends the AI quota it has left on relabelling them (`LLM_BACKLOG`, default 600 per run).
+**One-off: the past year.** Run the same workflow once with **backfill_days = 365**. It collects Google News week by week, GDELT (last three months) and Mastodon hashtag history, slowly and with random pauses so the sources do not block it (about 3–4 hours). If a source starts refusing, it stops and logs the date to resume from; run it again with **backfill_until** set to that date. Backfilled items first get keyword + sentiment-model labels; every regular run then spends the AI quota it has left on relabelling them (`LLM_BACKLOG`, default 1500 per run).
 
 **3. Dashboard on Streamlit Cloud**
 1. At [share.streamlit.io](https://share.streamlit.io), click **New app**, choose this repo and the main file `dashboard/dashboard.py`.

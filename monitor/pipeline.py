@@ -84,7 +84,7 @@ def run(only=None, hours=None, backend=None, retention_days=400, extra_json=None
     saved = store.upsert(items)
     log.info("Saved %d items to %s", saved, store.name)
     if backend in (None, "", "llm"):
-        relabel_backlog(store, entities, int(env("LLM_BACKLOG", "600")))
+        relabel_backlog(store, entities, int(env("LLM_BACKLOG", "1500")))
     if retention_days:
         store.prune(retention_days)
 
