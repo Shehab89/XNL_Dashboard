@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from monitor import collectors as col  # noqa: E402
 from monitor import insights as ins  # noqa: E402
-from monitor import nlp, pipeline  # noqa: E402
+from monitor import llm, nlp, pipeline  # noqa: E402
 from monitor.common import load_yaml, make_item, to_iso  # noqa: E402
 from monitor.demo import make_demo_items  # noqa: E402
 from monitor.storage import LocalStore, to_frame  # noqa: E402
@@ -69,6 +70,126 @@ def test_analyse_drops_irrelevant(tagger):
              make_item("news", "NOS", "Voetbaluitslagen van het weekend", url="u2")]
     kept, used = nlp.analyse(items, tagger, backend="lexicon")
     assert len(kept) == 1 and "Kabinet & formatie" in kept[0]["issues"] and used == "lexicon"
+
+
+# ----------------------------------------------------------------------------- LLM classification
+
+class _FakeClient:
+    def __init__(self, reply, fail=False):
+        self.reply, self.fail, self.calls = reply, fail, []
+
+    def generate(self, model, system, prompt, schema):
+        self.calls.append({"model": model, "system": system, "prompt": prompt, "schema": schema})
+        if self.fail:
+            raise RuntimeError("finishReason=SAFETY")
+        return json.dumps(self.reply)
+
+
+PARTIES, ISSUES = ["PVV", "D66"], ["Wonen", "Zorg"]
+
+
+def _res(i, **kw):
+    base = {"i": i, "relevant": True, "parties": [], "issues": [], "sentiment": "neutral", "score": 0.0}
+    return {**base, **kw}
+
+
+def test_llm_classify_validates_and_fixes_results():
+    fake = _FakeClient({"results": [
+        _res(0, parties=["PVV", "Fantasie"], issues=["Wonen"], sentiment="negative", score=0.7),   # sign fixed, name dropped
+        _res(1, relevant=False)]})
+    out = llm.classify([{"text": "a", "platform": "x"}, {"text": "b", "platform": "x"}], PARTIES, ISSUES, client=fake)
+    assert out[0] == {"relevant": True, "parties": ["PVV"], "issues": ["Wonen"], "sentiment": "negative", "score": -0.7}
+    assert out[1]["relevant"] is False
+    call = fake.calls[0]
+    assert call["schema"]["properties"]["results"]["items"]["properties"]["parties"]["items"]["enum"] == PARTIES
+    assert "Dutch" in call["system"] and "[1] (x) b" in call["prompt"]
+
+
+def test_llm_missing_or_refused_batch_gives_none():
+    assert llm.classify([{"text": "a", "platform": "x"}], PARTIES, ISSUES, client=_FakeClient({"results": []})) == [None]
+    refused = _FakeClient({"results": []}, fail=True)
+    assert llm.classify([{"text": "a", "platform": "x"}], PARTIES, ISSUES, client=refused) == [None]
+
+
+def test_gemini_client_request_shape(monkeypatch):
+    class Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": '{"results": []}'}]}}]}
+
+    sent = {}
+
+    class Session:
+        def post(self, url, json, timeout, headers):
+            sent.update(url=url, body=json, headers=headers)
+            return Resp()
+
+    text = llm.GeminiClient("k", session=Session()).generate("gemini-flash-latest", "sys", "p", {"type": "object"})
+    assert text == '{"results": []}' and sent["headers"]["x-goog-api-key"] == "k"
+    assert "gemini-flash-latest:generateContent" in sent["url"]
+    assert sent["body"]["generationConfig"]["responseJsonSchema"] == {"type": "object"}
+    assert "thinkingConfig" not in sent["body"]["generationConfig"]
+    llm.GeminiClient("k", session=Session()).generate("gemini-2.5-flash", "sys", "p", {"type": "object"})
+    assert sent["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+
+
+def test_gemini_daily_quota_stops_the_run(monkeypatch):
+    monkeypatch.setenv("LLM_BATCH_SIZE", "1")
+    monkeypatch.setenv("LLM_WORKERS", "1")
+    calls = []
+
+    class Client:
+        def generate(self, *a):
+            calls.append(1)
+            raise llm.QuotaExhausted("Gemini daily quota used up")
+
+    items = [{"text": str(n), "platform": "x"} for n in range(5)]
+    assert llm.classify(items, PARTIES, ISSUES, client=Client(), model="m") == [None] * 5
+    assert len(calls) == 1          # no more calls after the daily quota is gone
+
+
+def test_gemini_quota_switches_to_next_model(monkeypatch):
+    monkeypatch.setenv("LLM_BATCH_SIZE", "1")
+    monkeypatch.setenv("LLM_WORKERS", "1")
+    used = []
+
+    class Client:
+        def generate(self, model, system, prompt, schema):
+            used.append(model)
+            if model == "a":
+                raise llm.QuotaExhausted("quota for a used up")
+            return json.dumps({"results": [{"i": 0, "relevant": True, "parties": [], "issues": [],
+                                             "sentiment": "neutral", "score": 0}]})
+
+    items = [{"text": str(n), "platform": "x"} for n in range(3)]
+    out = llm.classify(items, PARTIES, ISSUES, client=Client(), model="a, b")
+    assert all(r and r["sentiment"] == "neutral" for r in out)
+    assert used == ["a", "b", "b", "b"]
+
+
+def test_retry_delay_parsing():
+    assert llm._retry_delay('"retryDelay": "40s"', 5) == 41.0
+    assert llm._retry_delay("no hint", 5) == 5
+
+
+def test_analyse_uses_llm_then_falls_back(tagger, monkeypatch):
+    items = [make_item("news", "NOS", "Wilders over huurprijzen", url="u1"),
+             make_item("news", "NOS", "Wilders en de zorg: een geweldig plan", url="u2"),
+             make_item("news", "NOS", "Zorg kost veel", url="u3")]
+    answers = [{"relevant": True, "parties": ["PVV"], "issues": ["Wonen"], "sentiment": "negative", "score": -0.6},
+               None,
+               {"relevant": False, "parties": [], "issues": [], "sentiment": "neutral", "score": 0.0}]
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "classify", lambda *a, **k: answers)
+    kept, used = nlp.analyse(items, tagger)
+    by_url = {i["url"]: i for i in kept}
+    assert set(by_url) == {"u1", "u2"} and used.startswith("llm+")
+    assert by_url["u1"]["sentiment"] == "negative" and by_url["u1"]["issues"] == ["Wonen"]
+    assert by_url["u2"]["sentiment"] == "positive"          # lexicon fallback for the item the LLM skipped
 
 
 # ----------------------------------------------------------------------------- collectors (offline fixtures)
@@ -148,6 +269,23 @@ def test_search_queries_cover_parties_and_issues():
     assert "Wilders" in queries["PVV"] and len(queries) == len(entities["parties"]) + len(entities["issues"])
 
 
+def test_youtube_handle_resolution():
+    class Resp:
+        def __init__(self, url):
+            self.status_code = 200 if "@Nieuwsuur" in url else 404
+            self.text = '<script>{"channelId":"UCExcZNwh_3Mwm4fF4VSiu2w"}</script>' if self.status_code == 200 else ""
+
+    class FakeHttp:
+        class session:
+            @staticmethod
+            def get(url, timeout=None):
+                return Resp(url)
+
+    assert col.resolve_youtube_channel(FakeHttp(), "UCExcZNwh_3Mwm4fF4VSiu2w") == "UCExcZNwh_3Mwm4fF4VSiu2w"
+    assert col.resolve_youtube_channel(FakeHttp(), "@Nieuwsuur") == "UCExcZNwh_3Mwm4fF4VSiu2w"
+    assert col.resolve_youtube_channel(FakeHttp(), "@bestaatniet") is None
+
+
 def test_collect_all_survives_broken_source(monkeypatch):
     monkeypatch.setitem(col.COLLECTORS, "news", lambda cfg, **k: (_ for _ in ()).throw(RuntimeError("down")))
     monkeypatch.setitem(col.COLLECTORS, "bluesky", lambda cfg, **k: [make_item("bluesky", "Bluesky", "PVV", uid="1")])
@@ -220,6 +358,8 @@ def test_emerging_terms_and_brief(demo_df):
     assert not em.empty and (em["lift"] > 0).all()
     brief = ins.executive_brief(demo_df)
     assert len(brief) >= 5 and "PVV" in brief[1]
+    nl = ins.executive_brief(demo_df, lang="nl")
+    assert len(nl) == len(brief) and nl[0].endswith("bronnen.")
 
 
 def test_rolling_net_and_outlet_tone(demo_df):
@@ -263,11 +403,34 @@ def test_supabase_store_requests(monkeypatch):
     monkeypatch.setattr(store.http.session, "request", fake_request)
     assert store.upsert(rows) == 1200
     posts = [c for c in calls if c[0] == "POST"]
-    assert [c[2] for c in posts] == [500, 500, 200]
+    assert [c[2] for c in posts] == [100] * 12
     assert posts[0][1] == {"on_conflict": "id"} and "merge-duplicates" in posts[0][3]
     df = store.load(days=30)
     assert len(df) == 1200 and [c[1]["offset"] for c in calls if c[0] == "GET"] == [0, 1000]
     assert df["parties"].iloc[0] == ["PVV"]
+
+
+def test_supabase_store_retries_dropped_writes(monkeypatch):
+    import requests
+
+    from monitor import storage
+
+    attempts = []
+
+    class Resp:
+        status_code, text = 201, ""
+
+    def flaky(method, url, **kwargs):
+        attempts.append(method)
+        if len(attempts) < 3:
+            raise requests.ConnectionError("The write operation timed out")
+        return Resp()
+
+    store = storage.SupabaseStore("https://abc.supabase.co", "key")
+    monkeypatch.setattr(store.http.session, "request", flaky)
+    monkeypatch.setattr(storage.time, "sleep", lambda s: None)
+    assert store.upsert([make_item("news", "NOS", "PVV bericht", url="u")]) == 1
+    assert attempts == ["POST"] * 3
 
 
 def test_local_model_backend(monkeypatch):
@@ -284,3 +447,40 @@ def test_local_failure_uses_api_before_lexicon(monkeypatch):
     monkeypatch.setattr(nlp, "_score_api", lambda texts, *a: [(-0.5, "negative") for _ in texts])
     scores, used = nlp.score_sentiment(["x"], backend="local")
     assert used == "api" and scores == [(-0.5, "negative")]
+
+
+def test_history_google_news_uses_date_window():
+    start, end = datetime(2025, 11, 1, tzinfo=timezone.utc), datetime(2025, 11, 8, tzinfo=timezone.utc)
+    rss = """<rss><channel>
+      <item><title>PVV wint - NOS</title><link>https://a/1</link><pubDate>Mon, 03 Nov 2025 10:00:00 GMT</pubDate>
+        <source url="https://nos.nl">NOS</source></item>
+      <item><title>PVV oud - NOS</title><link>https://a/2</link><pubDate>Mon, 20 Oct 2025 10:00:00 GMT</pubDate>
+        <source url="https://nos.nl">NOS</source></item>
+    </channel></rss>"""
+    asked = []
+
+    class FakeHttp:
+        def get(self, url, params=None, **kw):
+            asked.append(params["q"])
+            return rss
+
+        def is_down(self, url):
+            return False
+
+    items = col.history_google_news({}, FakeHttp(), start, end, [("PVV", ["PVV", "Wilders"])])
+    assert asked == ["PVV OR Wilders after:2025-11-01 before:2025-11-08"]
+    assert [i["title"] for i in items] == ["PVV wint"]
+
+
+def test_relabel_backlog_uses_llm_and_drops_irrelevant(tmp_path, monkeypatch):
+    store = LocalStore(tmp_path / "items.parquet")
+    rows = [make_item("news", "NOS", f"bericht {n}", url=f"u{n}") | {"parties": [], "issues": [], "sentiment": "neutral",
+                                                                     "sentiment_score": 0.0, "analysed_by": "local"}
+            for n in range(3)]
+    store.upsert(rows)
+    answer = {"relevant": True, "parties": ["PVV"], "issues": ["Wonen"], "sentiment": "negative", "score": -0.6}
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "classify", lambda items, p, i: [answer, {**answer, "relevant": False}, None])
+    assert pipeline.relabel_backlog(store, load_yaml("entities.yaml"), 10) == 1
+    df = store._read().set_index("analysed_by")
+    assert len(df) == 2 and df.loc["llm", "parties"] == ["PVV"] and "local" in df.index

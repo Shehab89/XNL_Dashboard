@@ -1,6 +1,7 @@
 """Analysis of each item: which parties and issues it mentions, and its sentiment.
 
-Sentiment backends (chosen automatically, override with SENTIMENT_BACKEND=local|api|lexicon):
+Sentiment backends (chosen automatically, override with SENTIMENT_BACKEND=llm|local|api|lexicon):
+  * llm     - Claude (see monitor/llm.py), also decides relevance, parties and issues. Used first when ANTHROPIC_API_KEY is set.
   * local   - runs the model on your own machine / GitHub Actions (free, needs `transformers` + `torch`)
   * api     - Hugging Face Inference API (free tier, needs HUGGINGFACE_API_KEY)
   * lexicon - built-in Dutch word list: instant, offline, less accurate. Used as the fallback.
@@ -12,6 +13,7 @@ labels negative / neutral / positive). Override with SENTIMENT_MODEL.
 import re
 from functools import lru_cache
 
+from . import llm
 from .common import env, load_yaml, log
 
 DEFAULT_MODEL = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
@@ -160,7 +162,12 @@ def score_sentiment(texts, backend=None, http=None):
 
 
 def analyse(items, tagger=None, backend=None, keep_irrelevant=False):
-    """Tag parties/issues, drop items that mention neither, and add sentiment. Returns (items, backend)."""
+    """Tag parties/issues, drop items that are not political, and add sentiment. Returns (items, backend).
+
+    Keyword matching is a cheap first filter. When an Anthropic key is set (and SENTIMENT_BACKEND does not
+    force another backend) Claude then decides relevance, parties, issues and sentiment for the candidates;
+    items it cannot answer for fall back to the sentiment backends above.
+    """
     tagger = tagger or Tagger()
     kept = []
     for item in items:
@@ -169,7 +176,28 @@ def analyse(items, tagger=None, backend=None, keep_irrelevant=False):
             kept.append({**item, "parties": parties, "issues": issues})
     if not kept:
         return [], backend or "none"
-    scores, used = score_sentiment([i["text"] for i in kept], backend)
-    for item, (score, label) in zip(kept, scores):
-        item["sentiment_score"], item["sentiment"] = score, label
-    return kept, used
+
+    wanted = backend or (env("SENTIMENT_BACKEND") or "").lower()
+    pending, used_llm = kept, False
+    if wanted in ("", "llm") and llm.available():
+        answers = llm.classify(kept, [name for name, _ in tagger.parties], [name for name, _ in tagger.issues])
+        pending, decided = [], []
+        for item, answer in zip(kept, answers):
+            if answer is None:
+                pending.append(item)
+            elif answer["relevant"] or keep_irrelevant:
+                item.update(parties=answer["parties"], issues=answer["issues"], sentiment=answer["sentiment"],
+                            sentiment_score=answer["score"], analysed_by="llm")
+                decided.append(item)
+        used_llm = bool(decided) or len(pending) < len(kept)
+        kept_llm = decided
+    else:
+        kept_llm = []
+
+    used = "llm" if used_llm and not pending else None
+    if pending:
+        scores, fallback = score_sentiment([i["text"] for i in pending], None if wanted in ("", "llm") else wanted)
+        for item, (score, label) in zip(pending, scores):
+            item["sentiment_score"], item["sentiment"], item["analysed_by"] = score, label, fallback
+        used = f"llm+{fallback}" if used_llm else fallback
+    return kept_llm + pending, used or "none"

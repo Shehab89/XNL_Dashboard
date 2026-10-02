@@ -49,10 +49,34 @@ reddit:
 telegram:
   channels: []
 
-# YouTube: channel uploads via RSS (titles + descriptions). Add channel IDs (start with "UC"),
-# found in the channel page source or via "Share channel -> Copy channel ID".
+# YouTube: channel uploads via RSS (titles + descriptions). Use the channel's @handle (looked up on every run)
+# or its channel ID (starts with "UC"). Handles that cannot be found are logged and skipped.
 youtube:
-  channels: {}
-  # example:  NOS: UCxxxxxxxxxxxxxxxxxxxxxx
+  channels:
+    # public broadcasters and big news brands
+    NOS: "@NOS"
+    Nieuwsuur: "@Nieuwsuur"
+    EenVandaag: "@EenVandaag"
+    RTL Nieuws: "@RTLNieuws"
+    De Telegraaf: "@detelegraaf"
+    BNR: "@bnr"
+    BNNVARA: "UCbd_cIHnI1J_XcLT86NMyvQ"
+    Buitenhof: "@buitenhof"
+    Op1: "@Op1"
+    # parliament and politics commentary
+    Tweede Kamer: "@tweedekamer"
+    Politiek Inzicht: "@politiekinzicht1"
+    PowNews: "@PowNews"
+    GeenStijl: "@GeenStijl"
+    Ongehoord Nederland: "@OngehoordNederlandtv"
+    De Nieuwe Wereld: "@DeNieuweWereld"
+    De Correspondent: "@decorrespondent"
+    Follow the Money: "@FollowTheMoneyNL"
+    # topic channels: migration, climate, housing, health, farming, defence
+    Vluchtelingenwerk: "@vluchtelingenwerk"
+    Greenpeace NL: "@GreenpeaceNederland"
+    Milieudefensie: "@Milieudefensie"
+    Vereniging Eigen Huis: "@VerenigingEigenHuis"
+    Defensie: "@defensie"
 
 # X / Twitter: optional, see scraper/ (needs your own X login cookies; use at your own risk).

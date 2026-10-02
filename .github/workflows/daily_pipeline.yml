@@ -9,6 +9,14 @@ on:
         description: "Look back this many hours (default: 48 from config/sources.yaml)"
         required: false
         default: ""
+      backfill_days:
+        description: "One-off: collect this many past days (e.g. 365) instead of the regular run"
+        required: false
+        default: ""
+      backfill_until:
+        description: "Resume an interrupted backfill from this date (YYYY-MM-DD)"
+        required: false
+        default: ""
 
 concurrency:
   group: media-monitor
@@ -23,10 +31,13 @@ env:
 jobs:
   pipeline:
     runs-on: ubuntu-24.04   # pinned: ubuntu-latest moves to Ubuntu 26 in Oct 2026
-    timeout-minutes: 60
+    timeout-minutes: ${{ github.event.inputs.backfill_days != '' && 340 || 60 }}
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}             # LLM sentiment + topic classification (preferred)
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}       # alternative LLM provider
+      LLM_MODEL: ${{ vars.LLM_MODEL }}                          # optional model override
       HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}   # backup if the local model cannot load
       BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
       BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
@@ -54,12 +65,12 @@ jobs:
 
       # ---- optional: X (only runs when the X_AUTH_TOKEN and X_CT0 secrets exist) ----
       - name: Setup Node.js (X scraper)
-        if: env.X_AUTH_TOKEN != ''
+        if: env.X_AUTH_TOKEN != '' && github.event.inputs.backfill_days == ''
         uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Run X scraper
-        if: env.X_AUTH_TOKEN != ''
+        if: env.X_AUTH_TOKEN != '' && github.event.inputs.backfill_days == ''
         continue-on-error: true      # X problems must never block the other sources
         timeout-minutes: 25          # a hung browser must not eat the whole job
         run: |
@@ -72,7 +83,16 @@ jobs:
 
       # ---- all free sources + analysis + storage ----
       - name: Collect, analyse and store
+        if: github.event.inputs.backfill_days == ''
         run: |
           ARGS="--require-db --extra-json scraper/x_items.json"
           if [ -n "${{ github.event.inputs.hours }}" ]; then ARGS="$ARGS --hours ${{ github.event.inputs.hours }}"; fi
           python -m monitor.pipeline run $ARGS
+
+      # ---- one-off history (Actions → Run workflow → backfill_days = 365) ----
+      - name: Backfill past days
+        if: github.event.inputs.backfill_days != ''
+        run: |
+          ARGS="--days ${{ github.event.inputs.backfill_days }}"
+          if [ -n "${{ github.event.inputs.backfill_until }}" ]; then ARGS="$ARGS --until ${{ github.event.inputs.backfill_until }}"; fi
+          python -m monitor.pipeline backfill $ARGS
