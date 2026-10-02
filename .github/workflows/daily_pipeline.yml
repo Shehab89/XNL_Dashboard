@@ -66,15 +66,16 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-${{ env.SENTIMENT_MODEL }}
 
-      # ---- optional: X search from the cloud. X shows GitHub's servers a "please wait" wall, so this is off unless the
-      # repository variable X_IN_CLOUD is "true". Use x_home.yml (your own computer) instead. ----
+      # ---- optional: X search with a logged-in browser (X_AUTH_TOKEN / X_CT0 secrets). It runs a real browser window
+      # on a virtual screen (xvfb), because headless Chromium gets stuck on X's "Even geduld..." screen. Set the
+      # repository variable X_IN_CLOUD to "false" to leave X to x_home.yml (your own computer). ----
       - name: Setup Node.js (X scraper)
-        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD == 'true' && github.event.inputs.backfill_days == ''
+        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD != 'false' && github.event.inputs.backfill_days == ''
         uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Run X scraper
-        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD == 'true' && github.event.inputs.backfill_days == ''
+        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD != 'false' && github.event.inputs.backfill_days == ''
         continue-on-error: true      # X problems must never block the other sources
         timeout-minutes: 25          # a hung browser must not eat the whole job
         run: |
@@ -83,7 +84,7 @@ jobs:
           npm ci
           npx playwright install chromium --with-deps
           npm run build
-          npm start
+          X_HEADFUL=1 xvfb-run --auto-servernum --server-args="-screen 0 1280x900x24" npm start
 
       # ---- all free sources + analysis + storage ----
       - name: Collect, analyse and store

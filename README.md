@@ -34,7 +34,7 @@ All sources are set in [`config/sources.yaml`](config/sources.yaml). Add or remo
 
 > ⚠️ **About X:** X has no free API. Two free routes are built in:
 > 1. **Accounts (automatic, in the cloud).** `x_profiles` in `config/sources.yaml` reads the latest posts of the listed accounts through the same public service that powers embedded X timelines on news sites. No login, but accounts only, not search, and X may throttle it.
-> 2. **Search (on your own computer).** X shows every search from cloud servers a "please wait" wall, so the search scraper must run from a home connection. It logs in with your browser cookies, which is against X's terms and can get the account locked, so use a secondary account.
+> 2. **Search (logged-in browser).** The pipeline opens a real browser window on a virtual screen and searches X like a person. If X still shows its "Even geduld..." wall to GitHub's servers, set the repository variable `X_IN_CLOUD` to `false` and run the same scraper from your own computer (below). It logs in with your browser cookies, which is against X's terms and can get the account locked, so use a secondary account.
 >
 > **X on your own computer (free, about 10 minutes once):**
 > 1. Install [Node.js 22](https://nodejs.org) and [Python 3.11+](https://www.python.org) on a computer that is often on.

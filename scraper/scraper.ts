@@ -29,6 +29,9 @@ const QUERIES = path.join(SCRAPER_DIR, "queries.json");
 // Hard stop so X can never hold up the rest of the pipeline (the workflow step has its own timeout too).
 const MAX_RUNTIME_MS = Number(process.env.X_MAX_MINUTES || 15) * 60_000;
 const MAX_SCROLLS = 25;
+// X_HEADFUL=1 opens a real browser window (on a server: under xvfb-run), which X treats like a person's browser.
+// That is how this scraper worked in February 2026; headless Chromium now gets stuck on X's "Even geduld..." screen.
+const HEADFUL = /^(1|true|yes)$/i.test(process.env.X_HEADFUL || "");
 // Headless Chromium announces itself as "HeadlessChrome", which X refuses to serve timelines to.
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
@@ -102,8 +105,16 @@ async function main() {
     return;
   }
   const queries: Query[] = JSON.parse(fs.readFileSync(QUERIES, "utf-8"));
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ locale: "nl-NL", userAgent: USER_AGENT, viewport: { width: 1280, height: 900 } });
+  const browser = await chromium.launch({
+    headless: !HEADFUL,
+    args: ["--disable-blink-features=AutomationControlled", "--lang=nl-NL"],
+  });
+  const context = await browser.newContext({
+    locale: "nl-NL", timezoneId: "Europe/Amsterdam", viewport: { width: 1280, height: 900 },
+    ...(HEADFUL ? {} : { userAgent: USER_AGENT }), // a real window sends its own, consistent user agent
+  });
+  // Automation flag that sites read to spot scripted browsers.
+  await context.addInitScript(() => Object.defineProperty(navigator, "webdriver", { get: () => undefined }));
   await context.addCookies([
     { name: "auth_token", value: X_AUTH_TOKEN, domain: ".x.com", path: "/", secure: true, httpOnly: true },
     { name: "ct0", value: X_CT0, domain: ".x.com", path: "/", secure: true },
@@ -121,7 +132,8 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log(`X session OK (${page.url()})`);
+  console.log(`X session OK (${page.url()}), ${HEADFUL ? "browser window" : "headless"}`);
+  let saved = 0;
 
   const deadline = Date.now() + MAX_RUNTIME_MS;
   for (const q of queries.sort(() => Math.random() - 0.5)) {
@@ -133,13 +145,17 @@ async function main() {
     const url = `https://x.com/search?q=${encodeURIComponent(`(${terms}) lang:nl`)}&src=typed_query&f=live`;
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15000 });
+      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 30000 });
       const found = await collect(page, PER_QUERY);
       all = all.concat(found);
       console.log(`${q.label}: ${found.length} posts`);
     } catch (error: any) {
       const title = await page.title().catch(() => "");
       console.log(`${q.label}: no results (${error.message.split("\n")[0]}) at ${page.url()} "${title}"`);
+      if (saved++ < 2) { // what X showed instead of posts, so the run log says why
+        const shown = await page.evaluate(() => document.body.innerText).catch(() => "");
+        console.log(`  page text: ${shown.replace(/\s+/g, " ").slice(0, 300)}`);
+      }
     }
     await page.waitForTimeout(4000 + Math.random() * 5000); // behave like a person, not a bot
   }

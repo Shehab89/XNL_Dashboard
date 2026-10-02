@@ -33,6 +33,7 @@ jobs:
       X_CT0: ${{ secrets.X_CT0 }}
       X_PER_QUERY: "60"
       X_MAX_MINUTES: "25"
+      X_HEADFUL: "1"                 # a real browser window, like a person uses X
     # every step is a single command, so it runs the same in PowerShell (Windows), bash (Linux) and zsh (macOS)
     steps:
       - uses: actions/checkout@v7
