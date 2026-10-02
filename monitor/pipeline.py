@@ -9,6 +9,7 @@
 """
 
 import argparse
+from pathlib import Path
 import json
 import logging
 import re
@@ -267,7 +268,8 @@ def main(argv=None):
     p_probe.add_argument("--only", help="comma-separated collectors, e.g. news,youtube")
     p_probe.add_argument("--hours", type=int, default=24)
     sub.add_parser("demo", help="write fictional demo data to the local store")
-    sub.add_parser("queries", help="print the search queries as JSON")
+    p_queries = sub.add_parser("queries", help="print the search queries as JSON")
+    p_queries.add_argument("--out", help="write them to this file (UTF-8) instead, e.g. scraper/queries.json")
     sub.add_parser("publish", help="re-tag politicians and rebuild the website snapshot (no collection)")
     args = parser.parse_args(argv)
 
@@ -281,8 +283,12 @@ def main(argv=None):
     if args.cmd == "probe":
         return probe(set(args.only.split(",")) if args.only else None, args.hours)
     if args.cmd == "queries":
-        print(json.dumps([{"label": label, "terms": terms}
-                          for label, terms in search_queries(load_yaml("entities.yaml"))], ensure_ascii=False))
+        text = json.dumps([{"label": label, "terms": terms}
+                           for label, terms in search_queries(load_yaml("entities.yaml"))], ensure_ascii=False)
+        if args.out:  # a file, not shell redirection: Windows PowerShell would write UTF-16
+            Path(args.out).write_text(text, encoding="utf-8")
+        else:
+            print(text)
         return 0
     if args.cmd == "publish":
         publish(get_store(), load_yaml("entities.yaml"))
