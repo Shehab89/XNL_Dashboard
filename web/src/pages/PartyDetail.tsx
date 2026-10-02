@@ -1,0 +1,131 @@
+import { Link, useParams } from "react-router-dom";
+import { AttentionChart } from "../components/charts/AttentionChart";
+import { ParliamentPanel } from "../components/ParliamentPanel";
+import { Bars } from "../components/TopicBars";
+import { Breadcrumbs, Delta, HeadlineList, LayerTag, SectionHead, Source, Stat, ToneBar } from "../components/ui";
+import { WithData } from "../components/WithData";
+import { POLITICIANS, TOTAL_SEATS, partyById, politicianById, topicById } from "../data/reference";
+import { useLang } from "../hooks/useLang";
+import { useTitle } from "../hooks/useTitle";
+import { MONITOR_SOURCE, type MonitorData } from "../services/monitor";
+import { fmtDate, fmtInt } from "../utils/format";
+import { argmax, change, windowSum } from "../utils/series";
+import NotFound from "./NotFound";
+
+export default function PartyDetail() {
+  const { id = "" } = useParams();
+  const party = partyById.get(id);
+  useTitle(party?.name ?? "");
+  if (!party) return <NotFound />;
+  return <WithData>{(d) => <PartyView data={d} id={id} />}</WithData>;
+}
+
+function PartyView({ data, id }: { data: MonitorData; id: string }) {
+  const { lang, t } = useLang();
+  const p = partyById.get(id)!;
+  const cov = data.party.get(id)!;
+  const pw = data.partialWeek;
+  const leader = p.leaderId ? politicianById.get(p.leaderId) : undefined;
+  const people = POLITICIANS.filter((x) => x.partyId === id);
+  const links = data.links.filter((l) => l.party === id).sort((a, b) => b.n - a.n);
+  const withTopic = links.reduce((a, l) => a + l.n, 0);
+  // Reference: how all parties together divide their attention over topics.
+  const allByTopic = new Map<string, number>();
+  for (const l of data.links) allByTopic.set(l.topic, (allByTopic.get(l.topic) ?? 0) + l.n);
+  const allTotal = [...allByTopic.values()].reduce((a, b) => a + b, 0);
+  const peak = argmax(cov.series.n.slice(0, pw));
+  const peakEvent = data.events.find((e) => e.kind === "media-peak" && e.date === data.weeks[peak] && e.parties.includes(id));
+
+  return (
+    <div className="page">
+      <Breadcrumbs items={[{ label: t("Overzicht", "Overview"), to: "/" }, { label: t("Partijen", "Parties"), to: "/partijen" }, { label: p.name }]} />
+      <header className="identity">
+        <div>
+          <div className="party-bar" style={{ background: p.color }} />
+          <div className="kicker">{t("Partij", "Party")} · {t("Tweede Kamer", "House of Representatives")}</div>
+          <h1 className="display h1" style={{ marginTop: 10 }}>{p.name}</h1>
+          <p className="lede" style={{ marginTop: 12 }}>{p.fullName}</p>
+        </div>
+        <div>
+          <div className="split" style={{ marginBottom: 6 }}><span className="kicker">{t("Feiten", "Facts")}</span><LayerTag layer="fact" /></div>
+          <dl className="factsheet">
+            <div><dt>{t("Zetels", "Seats")}</dt><dd>{p.seats ?? "–"} {t("van", "of")} {TOTAL_SEATS}</dd></div>
+            <div><dt>{t("Lijsttrekker", "Lead candidate")}</dt><dd>{leader ? <Link to={`/politici/${leader.id}`}>{leader.name}</Link> : "–"} <span className="muted">(2025)</span></dd></div>
+            <div><dt>{t("Positie", "Position")}</dt><dd><span className="verify">{t("Coalitie of oppositie: nog niet geladen", "Coalition or opposition: not loaded yet")}</span></dd></div>
+          </dl>
+          <Source sources={[p.seatsSource]} />
+        </div>
+      </header>
+
+      <section className="section" style={{ borderTop: 0 }}>
+        <div className="stats">
+          <Stat layer="data" label={t("Berichten, 12 maanden", "Items, 12 months")} value={fmtInt(cov.totals.n, lang)} sub={`${Math.round((100 * cov.totals.social) / Math.max(1, cov.totals.n))}% ${t("sociale media", "social media")}`} />
+          <Stat layer="data" label={t("Laatste 4 weken", "Last 4 weeks")} value={fmtInt(windowSum(cov.series.n, pw, 4), lang)} sub={<><Delta value={change(cov.series.n, pw, 4)} /> {t("t.o.v. 4 weken ervoor", "vs. 4 weeks before")}</>} />
+          <Stat layer="data" label={t("Drukste week", "Busiest week")} value={fmtDate(data.weeks[peak], lang, "short")} sub={`${fmtInt(cov.series.n[peak], lang)} ${t("berichten", "items")}`} />
+          <Stat layer="data" label={t("Meest samen met", "Most mentioned with")} value={links[0] ? (lang === "nl" ? topicById.get(links[0].topic)?.name : topicById.get(links[0].topic)?.nameEn) : "–"} sub={links[0] ? `${fmtInt(links[0].n, lang)} ${t("berichten", "items")}` : undefined} />
+        </div>
+      </section>
+
+      <section className="section grid-12">
+        <div className="span-8">
+          <SectionHead title={t("Aandacht over het jaar", "Attention over the year")} aside={<LayerTag layer="data" />} />
+          <AttentionChart weeks={data.weeks} partialWeek={pw} partialDays={data.partialDays} title={t(`Berichten per week over ${p.name}`, `Items per week about ${p.name}`)}
+            series={[{ id, label: p.name, color: p.color, values: cov.series.n }]}
+            markers={data.events.filter((e) => e.kind === "election").map((e) => ({ date: e.date, label: e.id === "tk2025" ? "TK" : "GR" }))} />
+          {peakEvent && (
+            <p className="small">
+              {t("Drukste week", "Busiest week")}: <Link to={`/tijdlijn#${peakEvent.id}`}>{peakEvent.title}</Link>
+            </p>
+          )}
+          <Source sources={[MONITOR_SOURCE]} />
+        </div>
+        <div className="span-4">
+          <SectionHead title={t("Recente berichten", "Recent coverage")} aside={<LayerTag layer="data" />} />
+          <HeadlineList items={cov.headlines} />
+        </div>
+      </section>
+
+      <section className="section grid-12">
+        <div className="span-7">
+          <SectionHead title={t("Met welke onderwerpen genoemd", "Topics it is mentioned with")} aside={<LayerTag layer="data" />}>
+            {t("Aandeel van de berichten over deze partij én een onderwerp. Het streepje is het gemiddelde van alle partijen.",
+              "Share of items mentioning this party and a topic. The tick is the average across all parties.")}
+          </SectionHead>
+          {links.length ? (
+            <Bars unit="%" rows={links.slice(0, 10).map((l) => ({
+              id: l.topic, label: (lang === "nl" ? topicById.get(l.topic)?.name : topicById.get(l.topic)?.nameEn) ?? l.topic, to: `/onderwerpen/${l.topic}`,
+              value: (100 * l.n) / withTopic, ref: (100 * (allByTopic.get(l.topic) ?? 0)) / allTotal, color: p.color,
+              title: `${fmtInt(l.n, lang)} ${t("berichten", "items")}`,
+            }))} />
+          ) : <p className="small muted">{t("Te weinig berichten om onderwerpen te tonen.", "Too few items to show topics.")}</p>}
+          <Source sources={[MONITOR_SOURCE]} method={t("Samen genoemd zegt niets over het standpunt van de partij.", "Being mentioned together says nothing about the party's position.")} />
+        </div>
+        <div className="span-5">
+          <SectionHead title={t("Toon van de berichtgeving", "Tone of coverage")} aside={<LayerTag layer="analysis" />}>
+            {t("Of een bericht over de partij positief of negatief klinkt, ingeschat door een taalmodel. Het zegt iets over het nieuws, niet over de partij.",
+              "Whether coverage of the party sounds positive or negative, estimated by a language model. It describes the news, not the party.")}
+          </SectionHead>
+          <ToneBar n={cov.totals.n} pos={cov.totals.pos} neg={cov.totals.neg} label={p.name} />
+          <Source sources={[MONITOR_SOURCE]} method={t("Toonlabels per bericht; nieuwskoppen klinken vaker negatief dan neutraal. Vergelijk partijen alleen onderling.",
+            "Tone labels per item; headlines skew negative. Compare parties only with each other.")} />
+        </div>
+      </section>
+
+      <section className="section grid-12">
+        <div className="span-6"><ParliamentPanel filter={{ partyId: id }} label={t(`Ingediend of gesteund door de fractie van ${p.name}`, `Submitted or backed by the ${p.name} group`)} /></div>
+        <div className="span-6">
+          <div className="panel">
+            <div className="panel-head"><h3>{t("Politici in de monitor", "Politicians in the monitor")}</h3><LayerTag layer="fact" /></div>
+            {people.length ? (
+              <ul className="headlines">
+                {people.map((x) => (
+                  <li key={x.id}><Link to={`/politici/${x.id}`}><div className="hl-title">{x.name}</div><div className="hl-meta">{x.role}</div></Link></li>
+                ))}
+              </ul>
+            ) : <p className="small muted">{t("Nog geen politici van deze partij in de monitor.", "No politicians from this party in the monitor yet.")}</p>}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

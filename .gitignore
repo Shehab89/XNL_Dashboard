@@ -9,3 +9,6 @@ scraper/node_modules/
 scraper/dist/
 scraper/queries.json
 scraper/x_items.json
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
