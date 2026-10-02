@@ -27,7 +27,7 @@ export function SearchPalette({ open, onClose }: { open: boolean; onClose: () =>
   const inputRef = useRef<HTMLInputElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
 
-  const index = useMemo(() => buildIndex(state.status === "ready" ? state.data : null, lang), [state, lang]);
+  const index = useMemo(() => buildIndex(state.status === "ready" ? state.data.plain : null, lang), [state, lang]);
   const results = useMemo(() => search(index, q, 30), [index, q]);
   const groups = groupResults(results.filter((r) => r.kind !== "headline").slice(0, 14).concat(results.filter((r) => r.kind === "headline").slice(0, 5)));
   const flat = groups.flatMap((g) => g.items);

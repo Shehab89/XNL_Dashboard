@@ -2,6 +2,7 @@ import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { PageSkeleton } from "../components/ui";
 import { FilterBar } from "../components/FilterBar";
+import { filterMode } from "../hooks/useFilters";
 import { SearchPalette } from "../components/SearchPalette";
 import { useLang } from "../hooks/useLang";
 import { useMonitor } from "../hooks/useMonitor";
@@ -18,21 +19,23 @@ const NAV: [string, string, string][] = [
   ["/data", "Methode", "Method"],
 ];
 
+/** The Binnenhof and the Torentje reflected in the Hofvijver. */
 function BrandMark() {
+  const skyline = <>
+    <path d="M4 17V12l5-5 5 5v5z" /><path d="M14 17v-3h13v3z" /><path d="M19 17v-7l2-5 2 5v7z" />
+  </>;
   return (
     <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" fill="var(--ink)" />
-      <g fill="var(--paper)">
-        <circle cx="6" cy="23" r="2" /><circle cx="8.6" cy="15.5" r="2" /><circle cx="15.5" cy="10" r="2" />
-        <circle cx="22.4" cy="15.5" r="2" /><circle cx="25" cy="23" r="2" fill="var(--red)" />
-        <circle cx="11.5" cy="23" r="1.6" /><circle cx="13" cy="18" r="1.6" /><circle cx="18" cy="18" r="1.6" /><circle cx="19.5" cy="23" r="1.6" />
-      </g>
+      <g fill="var(--paper)">{skyline}</g>
+      <g fill="var(--paper)" opacity=".38" transform="matrix(1 0 0 -1 0 35.4)">{skyline}</g>
+      <path d="M3 17.7h26" stroke="var(--red)" strokeWidth="1.2" />
+      <path d="M6 27.5q2-1.2 4 0t4 0M17 29.5q2-1.2 4 0t4 0" fill="none" stroke="var(--ink)" strokeWidth="1" />
     </svg>
   );
 }
 
 /** Pages whose numbers follow the period and source filters. */
-const FILTERED = [/^\/$/, /^\/partijen/, /^\/politici/, /^\/onderwerpen/];
 
 export function Layout() {
   const { lang, setLang, t } = useLang();
@@ -64,9 +67,9 @@ export function Layout() {
       </a>
       <header className="masthead">
         <div className="page masthead-inner">
-          <Link to="/" className="brand" aria-label={t("Haagse Lens, naar overzicht", "Haagse Lens, go to overview")}>
+          <Link to="/" className="brand" aria-label={t("Hofvijver, naar overzicht", "Hofvijver, go to overview")}>
             <BrandMark />
-            <span className="brand-name">Haagse <em>Lens</em></span>
+            <span className="brand-name">Hof<em>vijver</em></span>
           </Link>
           <nav className="nav" aria-label={t("Hoofdmenu", "Main menu")}>{navLinks}</nav>
           <div className="masthead-tools">
@@ -109,7 +112,7 @@ export function Layout() {
         </>
       )}
 
-      {FILTERED.some((r) => r.test(location.pathname)) && <FilterBar />}
+      {filterMode(location.pathname) !== "none" && <FilterBar focus={filterMode(location.pathname) === "full"} />}
 
       <main id="main" tabIndex={-1} style={{ outline: "none" }}>
         <Suspense fallback={<PageSkeleton />}>
@@ -120,7 +123,7 @@ export function Layout() {
       <footer className="footer">
         <div className="page grid-12">
           <div className="span-5">
-            <div className="row" style={{ marginBottom: 10 }}><BrandMark /><span className="brand-name">Haagse Lens</span></div>
+            <div className="row" style={{ marginBottom: 10 }}><BrandMark /><span className="brand-name">Hof<em>vijver</em></span></div>
             <p className="prose" style={{ margin: 0 }}>
               {t("Onafhankelijk en partijneutraal. Een project van EinData (Shehab Al-Masri).",
                 "Independent and non-partisan. A project by EinData (Shehab Al-Masri).")}

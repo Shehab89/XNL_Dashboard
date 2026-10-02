@@ -138,7 +138,7 @@ export function ToneBar({ n, pos, neg, label }: { n: number; pos: number; neg: n
 
 export function HeadlineList({ items, empty }: { items: Headline[]; empty?: string }) {
   const { lang, t } = useLang();
-  if (!items.length) return <EmptyState title={empty ?? t("Geen recente berichten.", "No recent items.")} />;
+  if (!items.length) return <EmptyState title={empty ?? t("Geen berichten die bij deze filters passen.", "No items match these filters.")} />;
   return (
     <ul className="headlines">
       {items.map((h) => (

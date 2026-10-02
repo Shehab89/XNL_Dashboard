@@ -2,7 +2,7 @@ name: Political Media Monitor — collect & analyse
 
 on:
   schedule:
-    - cron: "17 */6 * * *"      # every 6 hours (UTC)
+    - cron: "17 */2 * * *"      # every 2 hours (UTC); feeds without paging (RSS, Telegram) miss less
   workflow_dispatch:
     inputs:
       hours:
@@ -41,6 +41,7 @@ jobs:
       HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}   # backup if the local model cannot load
       BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
       BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}           # optional: YouTube comments (Data API v3)
       X_AUTH_TOKEN: ${{ secrets.X_AUTH_TOKEN }}
       X_CT0: ${{ secrets.X_CT0 }}
 

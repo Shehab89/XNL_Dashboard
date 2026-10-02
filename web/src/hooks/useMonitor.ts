@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { loadMonitor, type MonitorData } from "../services/monitor";
+import { loadMonitor, type Base } from "../services/monitor";
 
-type State = { status: "loading" } | { status: "ready"; data: MonitorData } | { status: "error"; error: Error };
+type State = { status: "loading" } | { status: "ready"; data: Base } | { status: "error"; error: Error };
 
 export function useMonitor(): State {
   const [state, setState] = useState<State>({ status: "loading" });

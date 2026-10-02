@@ -2,7 +2,7 @@
 
 **Track how Dutch political parties and issues are covered in the news and discussed on social media, automatically and for free.**
 
-Every 6 hours the monitor collects political news articles and public social-media posts, finds which **parties** and **issues** each one is about, scores its **tone** (positive, neutral or negative) with an AI model, and shows the result in a dashboard. The dashboard covers:
+Every 2 hours the monitor collects political news articles and public social-media posts, finds which **parties** and **issues** each one is about, scores its **tone** (positive, neutral or negative) with an AI model, and shows the result in a dashboard. The dashboard covers:
 
 - **Who gets the attention:** share of voice per party, in the news and on social media
 - **How they are judged:** net sentiment per party with uncertainty ranges, and the news-vs-social tone gap
@@ -18,17 +18,18 @@ Every 6 hours the monitor collects political news articles and public social-med
 
 | Channel | Source | How | Account needed? |
 |---|---|---|---|
-| 📰 News | **NOS, NU.nl, de Volkskrant, Trouw, AD, Het Parool, NRC, RTL Nieuws, GeenStijl** | Official RSS feeds | No |
-| 📰 News | **Google News** (hundreds of outlets, incl. regional) | Public RSS search, one search per party and issue | No |
-| 📰 News | **GDELT** (global news database) | Free public API | No |
+| 📰 News | **40+ outlets:** NOS, Nieuwsuur, NU.nl, de Volkskrant, Trouw, AD, NRC, RTL Nieuws, Telegraaf, FD, BNR, ND, RD, EW, FTM, GeenStijl, TPO, De Groene, all 13 regional broadcasters (Omroep Brabant, NH Nieuws, RTV Utrecht, …), Rijksoverheid, Tweede and Eerste Kamer | Official RSS feeds | No |
+| 📰 News | **Google News** (hundreds of outlets, incl. regional) | Public RSS search: one per party, politician and issue plus ~85 topic searches, and the Binnenland section | No |
+| 📰 News | **GDELT** (global news database) | Free public API, 250 articles per search plus broad searches on Dutch sources | No |
 | 💬 Social | **Bluesky** | Official public API, one search per party and issue | Free Bluesky account (app password) |
-| 💬 Social | **Mastodon** (mastodon.nl, mastodon.social, …) | Public hashtag timelines | No |
-| 💬 Social | **Reddit** (r/thenetherlands, r/nederlands, …) | Public RSS feeds + subreddit search | No |
+| 💬 Social | **Mastodon** (mastodon.nl, toot.community, mastodon.social, …) | ~50 public hashtag timelines + the whole local timeline of mastodon.nl and toot.community, paged back to the previous run | No |
+| 💬 Social | **Reddit** (r/thenetherlands, r/nederlands, r/ik_ihe, city subs, …) | Public RSS feeds + subreddit search | No |
 | 💬 Social | **Telegram** public channels | Public web preview (t.me/s/…) | No |
-| 💬 Social | **YouTube** channels | Channel RSS feeds | No |
+| 💬 Social | **YouTube** (~60 channels: broadcasters, talk shows, parties, regional) | Channel RSS feeds | No |
+| 💬 Social | **YouTube comments** *(optional)* | YouTube Data API v3: newest comments on the newest videos | Free API key (`YOUTUBE_API_KEY`) |
 | 💬 Social | **X / Twitter** *(optional)* | Browser scraper with your own login cookies | Your X account ⚠️ |
 
-All sources are set in [`config/sources.yaml`](config/sources.yaml). Add or remove outlets, subreddits, hashtags, Telegram channels or YouTube channels there. If one source is down, the others still run.
+All sources are set in [`config/sources.yaml`](config/sources.yaml). Add or remove outlets, subreddits, hashtags, Telegram channels or YouTube channels there. If one source is down, the others still run. To see which feeds work, run **Actions → "Check sources" → Run workflow** (or `python -m monitor.pipeline probe`): it lists the items per feed/channel for the last 24 hours and every failed URL, without storing anything.
 
 > ⚠️ **About X:** X has no free API. The optional scraper logs in with your browser cookies, which is against X's terms and can get the account locked, so use a secondary account. The monitor is complete without it.
 
@@ -67,7 +68,7 @@ For Bluesky, copy `.env.example` to `.env` and fill in `BSKY_HANDLE` and `BSKY_A
 
 ## ☁️ Run it automatically, 24/7 and free
 
-The full setup uses three free services: **GitHub Actions** collects every 6 hours, **Supabase** stores the data, and **Streamlit Community Cloud** hosts the dashboard.
+The full setup uses three free services: **GitHub Actions** collects every 2 hours, **Supabase** stores the data, and **Streamlit Community Cloud** hosts the dashboard.
 
 **1. Supabase (database)**
 1. Create a free project at [supabase.com](https://supabase.com).
@@ -81,9 +82,10 @@ The full setup uses three free services: **GitHub Actions** collects every 6 hou
 | `SUPABASE_URL` | Project URL | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role key | ✅ |
 | `BSKY_HANDLE`, `BSKY_APP_PASSWORD` | Bluesky login + app password | Recommended |
+| `YOUTUBE_API_KEY` | Free key from the [Google Cloud console](https://console.cloud.google.com/): create a project, enable **YouTube Data API v3**, then **Credentials → Create credentials → API key**. Adds viewers' comments (1 quota unit per 100 comments, 10,000 free a day) | Recommended |
 | `X_AUTH_TOKEN`, `X_CT0` | X cookies (DevTools → Application → Cookies → x.com) | Optional |
 
-Then go to **Actions → "Political Media Monitor" → Run workflow** to start the first collection. After that it runs by itself every 6 hours. The sentiment model runs inside GitHub Actions, which is free for public repos, so no Hugging Face key is needed.
+Then go to **Actions → "Political Media Monitor" → Run workflow** to start the first collection. After that it runs by itself every 2 hours. The sentiment model runs inside GitHub Actions, which is free for public repos, so no Hugging Face key is needed.
 
 **One-off: the past year.** Run the same workflow once with **backfill_days = 365**. It collects Google News week by week, GDELT (last three months) and Mastodon hashtag history, slowly and with random pauses so the sources do not block it (about 3–4 hours). If a source starts refusing, it stops and logs the date to resume from; run it again with **backfill_until** set to that date. Backfilled items first get keyword + sentiment-model labels; every regular run then spends the AI quota it has left on relabelling them (`LLM_BACKLOG`, default 1500 per run).
 
@@ -149,7 +151,7 @@ tests/                  Automated tests (run: python -m pytest)
 
 | Service | Free tier | Used for |
 |---|---|---|
-| GitHub Actions | Unlimited for public repos (2,000 min/month for private) | Collection + AI analysis every 6 h |
+| GitHub Actions | Unlimited for public repos (2,000 min/month for private) | Collection + AI analysis every 2 h |
 | Supabase | 500 MB database | Storage (items older than 180 days are removed automatically) |
 | Streamlit Community Cloud | Free public apps | Dashboard |
 | All data sources | Free | See the sources table above |

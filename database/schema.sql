@@ -126,64 +126,60 @@ BEGIN
     RETURN changed;
 END $$;
 
+-- One JSON document for the website, rebuilt after every run. Counts come as a sparse cube so the site can filter by
+-- week, platform, tone and one focus entity without another request:
+--   all [week, platform, tone, n]            every item
+--   one [week, platform, tone, entity, n]    items naming the entity
+--   two [week, platform, tone, e1, e2, n]    items naming both (e1 < e2)
+-- tone: 0 negative, 1 neutral, 2 positive. Indexes point into weeks, cube.plats and cube.ents.
 CREATE OR REPLACE FUNCTION refresh_web_snapshot(reference JSONB) RETURNS INTEGER LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE doc JSONB;
 BEGIN
     WITH w AS (
-        SELECT generate_series(date_trunc('week', now()) - INTERVAL '51 weeks', date_trunc('week', now()), INTERVAL '1 week')::date AS wk
+        SELECT wk::date, (row_number() OVER (ORDER BY wk) - 1)::int AS i
+        FROM generate_series(date_trunc('week', now()) - INTERVAL '51 weeks', date_trunc('week', now()), INTERVAL '1 week') wk
     ),
     base AS (
         SELECT id, date_trunc('week', published_at)::date AS wk, published_at, platform, source, title, text, url,
                coalesce(likes, 0) + coalesce(shares, 0) AS reach, parties, issues, coalesce(politicians, '{}') AS politicians,
-               sentiment, platform IN ('mastodon', 'bluesky', 'reddit', 'telegram', 'youtube', 'x') AS social
+               sentiment, CASE sentiment WHEN 'negative' THEN 0 WHEN 'positive' THEN 2 ELSE 1 END AS tone
         FROM items WHERE published_at >= (SELECT min(wk) FROM w)
     ),
-    ent AS (
-        SELECT 'party' AS k, e AS name, wk, sentiment, social FROM base, unnest(parties) e
-        UNION ALL SELECT 'issue', e, wk, sentiment, social FROM base, unnest(issues) e
-        UNION ALL SELECT 'politician', e, wk, sentiment, social FROM base, unnest(politicians) e
+    named AS (
+        SELECT DISTINCT id, k, name FROM (
+            SELECT id, 'party' AS k, unnest(parties) AS name FROM base
+            UNION ALL SELECT id, 'issue', unnest(issues) FROM base
+            UNION ALL SELECT id, 'politician', unnest(politicians) FROM base) x
     ),
-    agg AS (
-        SELECT k, name, wk, count(*) AS n, count(*) FILTER (WHERE sentiment = 'positive') AS pos,
-               count(*) FILTER (WHERE sentiment = 'negative') AS neg, count(*) FILTER (WHERE social) AS soc
-        FROM ent GROUP BY 1, 2, 3
-    ),
-    series AS (
-        SELECT g.k, g.name, jsonb_build_object(
-                   'n', jsonb_agg(coalesce(a.n, 0) ORDER BY w.wk), 'pos', jsonb_agg(coalesce(a.pos, 0) ORDER BY w.wk),
-                   'neg', jsonb_agg(coalesce(a.neg, 0) ORDER BY w.wk), 'soc', jsonb_agg(coalesce(a.soc, 0) ORDER BY w.wk)) AS s
-        FROM (SELECT DISTINCT k, name FROM agg) g CROSS JOIN w
-        LEFT JOIN agg a ON a.k = g.k AND a.name = g.name AND a.wk = w.wk
-        GROUP BY g.k, g.name
-    ),
-    total AS (
-        SELECT jsonb_agg(coalesce(t.n, 0) ORDER BY w.wk) AS n, jsonb_agg(coalesce(t.soc, 0) ORDER BY w.wk) AS soc
-        FROM w LEFT JOIN (SELECT wk, count(*) AS n, count(*) FILTER (WHERE social) AS soc FROM base GROUP BY wk) t USING (wk)
-    ),
-    pairs AS (
-        SELECT 'party' AS k, p AS name, i AS issue, sentiment FROM base, unnest(parties) p, unnest(issues) i
-        UNION ALL SELECT 'politician', p, i, sentiment FROM base, unnest(politicians) p, unnest(issues) i
-        UNION ALL SELECT 'politician-party', p, q, sentiment FROM base, unnest(politicians) p, unnest(parties) q
-    ),
-    links AS (
-        SELECT jsonb_agg(jsonb_build_object('k', k, 'a', name, 'b', issue, 'n', n, 'pos', pos, 'neg', neg) ORDER BY n DESC) AS j
-        FROM (SELECT k, name, issue, count(*) AS n, count(*) FILTER (WHERE sentiment = 'positive') AS pos,
-                     count(*) FILTER (WHERE sentiment = 'negative') AS neg
-              FROM pairs GROUP BY 1, 2, 3 HAVING count(*) >= 5) x
+    en AS (SELECT k, name, (row_number() OVER (ORDER BY k, name) - 1)::int AS i FROM (SELECT DISTINCT k, name FROM named) x),
+    pl AS (SELECT platform, (row_number() OVER (ORDER BY count(*) DESC, platform) - 1)::int AS i FROM base GROUP BY platform),
+    cell AS (SELECT b.id, w.i AS w, pl.i AS p, b.tone AS s FROM base b JOIN w USING (wk) JOIN pl USING (platform)),
+    ie AS (SELECT n.id, en.i AS e FROM named n JOIN en USING (k, name)),
+    cube AS (
+        SELECT jsonb_build_object(
+            'ents', (SELECT jsonb_agg(jsonb_build_array(k, name) ORDER BY i) FROM en),
+            'plats', (SELECT jsonb_agg(jsonb_build_object('name', platform, 'social',
+                          platform IN ('mastodon', 'bluesky', 'reddit', 'telegram', 'youtube', 'youtube_comment', 'x')) ORDER BY i) FROM pl),
+            'all', (SELECT coalesce(jsonb_agg(jsonb_build_array(w, p, s, n)), '[]')
+                    FROM (SELECT w, p, s, count(*) AS n FROM cell GROUP BY 1, 2, 3) x),
+            'one', (SELECT coalesce(jsonb_agg(jsonb_build_array(w, p, s, e, n)), '[]')
+                    FROM (SELECT w, p, s, e, count(*) AS n FROM cell JOIN ie USING (id) GROUP BY 1, 2, 3, 4) x),
+            'two', (SELECT coalesce(jsonb_agg(jsonb_build_array(w, p, s, e1, e2, n)), '[]')
+                    FROM (SELECT c.w, c.p, c.s, a.e AS e1, b.e AS e2, count(*) AS n
+                          FROM cell c JOIN ie a USING (id) JOIN ie b ON b.id = a.id AND b.e > a.e GROUP BY 1, 2, 3, 4, 5) x)) AS j
     ),
     recent AS (
-        SELECT DISTINCT ON (k, name, item_key(title, text)) k, name, title, source, platform, published_at, url, sentiment, reach
-        FROM (SELECT 'party' AS k, e AS name, b.* FROM base b, unnest(parties) e
-              UNION ALL SELECT 'issue', e, b.* FROM base b, unnest(issues) e
-              UNION ALL SELECT 'politician', e, b.* FROM base b, unnest(politicians) e) x
-        WHERE published_at >= now() - INTERVAL '30 days' AND title IS NOT NULL
-        ORDER BY k, name, item_key(title, text), published_at DESC
+        SELECT DISTINCT ON (n.k, n.name, item_key(b.title, b.text)) n.k, n.name, b.title, b.source, b.platform, b.published_at,
+               b.url, b.sentiment, b.reach
+        FROM base b JOIN named n USING (id)
+        WHERE b.published_at >= now() - INTERVAL '30 days' AND b.title IS NOT NULL
+        ORDER BY n.k, n.name, item_key(b.title, b.text), b.published_at DESC
     ),
     headlines AS (
         SELECT jsonb_agg(jsonb_build_object('k', k, 'name', name, 'title', title, 'source', source, 'platform', platform,
                    'd', published_at::date, 'url', url, 'sentiment', sentiment) ORDER BY k, name, published_at DESC) AS j
         FROM (SELECT *, row_number() OVER (PARTITION BY k, name ORDER BY published_at::date DESC, reach DESC) AS r FROM recent) x
-        WHERE r <= 5
+        WHERE r <= 10
     ),
     busiest AS (
         SELECT wk FROM base GROUP BY wk ORDER BY count(*) DESC LIMIT 14
@@ -193,18 +189,14 @@ BEGIN
                    'platform', platform, 'url', url, 'parties', parties, 'issues', issues, 'r', r) ORDER BY wk, r) AS j
         FROM (SELECT b.*, row_number() OVER (PARTITION BY b.wk ORDER BY cardinality(b.parties) + cardinality(b.issues) DESC,
                      b.reach DESC, b.published_at) AS r
-              FROM base b JOIN busiest USING (wk) WHERE b.title IS NOT NULL AND NOT b.social) x
+              FROM base b JOIN busiest USING (wk) WHERE b.title IS NOT NULL AND b.platform IN ('news', 'google_news', 'gdelt')) x
         WHERE r <= 3
     )
     SELECT jsonb_build_object(
-        'version', 2,
+        'version', 3,
         'generated', now(),
         'weeks', (SELECT jsonb_agg(wk ORDER BY wk) FROM w),
-        'total', (SELECT jsonb_build_object('n', n, 'soc', soc) FROM total),
-        'party', (SELECT coalesce(jsonb_object_agg(name, s), '{}') FROM series WHERE k = 'party'),
-        'issue', (SELECT coalesce(jsonb_object_agg(name, s), '{}') FROM series WHERE k = 'issue'),
-        'politician', (SELECT coalesce(jsonb_object_agg(name, s), '{}') FROM series WHERE k = 'politician'),
-        'links', (SELECT coalesce(j, '[]') FROM links),
+        'cube', (SELECT j FROM cube),
         'headlines', (SELECT coalesce(j, '[]') FROM headlines),
         'peaks', (SELECT coalesce(j, '[]') FROM peaks),
         'platforms', (SELECT jsonb_agg(jsonb_build_object('platform', platform, 'n', n) ORDER BY n DESC)

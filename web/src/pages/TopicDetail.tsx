@@ -7,10 +7,11 @@ import { WithData } from "../components/WithData";
 import { usePeriodLabel } from "../components/FilterBar";
 import { partyById, politicianById, topicById } from "../data/reference";
 import { useFilters } from "../hooks/useFilters";
+import { useHeadlines } from "../hooks/useHeadlines";
 import { useLang } from "../hooks/useLang";
 import { useTitle } from "../hooks/useTitle";
 import { MONITOR_SOURCE, type MonitorData } from "../services/monitor";
-import { chartStart, counts, inPeriod, toneIn } from "../utils/filters";
+import { chartStart, inPeriod, toneIn } from "../utils/filters";
 import { fmtDate, fmtInt } from "../utils/format";
 import { argmax } from "../utils/series";
 import NotFound from "./NotFound";
@@ -28,10 +29,11 @@ function TopicView({ data, id }: { data: MonitorData; id: string }) {
   const tp = topicById.get(id)!;
   const name = lang === "nl" ? tp.name : tp.nameEn;
   const cov = data.topic.get(id)!;
+  const headlines = useHeadlines(data, cov.headlines, { kind: "topic", id });
   const f = useFilters();
   const periodLabel = usePeriodLabel();
   const pw = data.partialWeek;
-  const weekly = counts(cov.series, f.source);
+  const weekly = cov.series.n;
   const now = inPeriod(weekly, pw, f.period);
   const tone = toneIn(cov.series, pw, f.period);
   const from = chartStart(data.weeks.length, f.period);
@@ -68,7 +70,7 @@ function TopicView({ data, id }: { data: MonitorData; id: string }) {
         </div>
         <div className="span-4">
           <SectionHead title={t("Recent", "Recent")} aside={<LayerTag layer="data" />} />
-          <HeadlineList items={cov.headlines} />
+          <HeadlineList items={headlines} />
         </div>
       </section>
 
@@ -81,7 +83,7 @@ function TopicView({ data, id }: { data: MonitorData; id: string }) {
               return { id: l.party, label: p.name, to: `/partijen/${l.party}`, value: l.n, color: p.color };
             })} />
           ) : <p className="small muted">{t("Te weinig berichten met partijnamen.", "Too few items naming a party.")}</p>}
-          <Source sources={[MONITOR_SOURCE]} method={t("12 maanden; berichten over dit onderwerp die de partij noemen.", "12 months; items on this topic naming the party.")} />
+          <Source sources={[MONITOR_SOURCE]} method={t("Berichten in de gekozen periode over dit onderwerp die de partij noemen.", "Items in the period on this topic naming the party.")} />
         </div>
         <div className="span-5">
           <SectionHead title={t("Politici in dit debat", "Politicians in this debate")} aside={<LayerTag layer="data" />} />

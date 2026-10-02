@@ -1,4 +1,4 @@
-# Haagse Lens · web
+# Hofvijver · web
 
 The public frontend of the monitor: parties, politicians, topics, the Tweede Kamer and a timeline, with a source and a
 layer mark (fact, data, analysis, interpretation) on every block.
@@ -24,7 +24,11 @@ npm test             # unit tests (vitest)
   `select data from web_snapshot where id = 1`.
 - `src/data/reference.ts` topics, glossary and history; parties and politicians are filled from the snapshot
   (`applyReference`).
-- Filters (period 4/13/52 weeks, source all/news/social) live in `src/hooks/useFilters.tsx` and apply to every list and chart.
+- Filters (period presets or a custom week range, tone, source or single platform, and one party/person/topic to focus on)
+  live in `src/hooks/useFilters.tsx`. The snapshot carries a sparse count cube (week × platform × tone × entity, plus
+  entity pairs), and `view()` in `src/services/monitor.ts` recomputes every series, ranking and co-mention from it, so
+  all filters work instantly and offline. On the live site headline lists are fetched from the `items` table with the
+  same filters (`src/hooks/useHeadlines.ts`).
 - `src/services` the seams: `monitor.ts` (media data), `parliament.ts` (Tweede Kamer open data, not connected yet:
   the UI shows an explicit "not connected" state), `search.ts`.
 - `src/components`, `src/pages`, `src/layouts`, `src/styles/app.css` (design tokens and all styles).

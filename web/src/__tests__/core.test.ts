@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import raw from "../data/snapshot.json";
 import { PARTIES, POLITICIANS, TOTAL_SEATS, partyById } from "../data/reference";
-import { loadMonitor } from "../services/monitor";
+import { loadMonitor, view } from "../services/monitor";
+import { DEFAULT_FILTERS } from "../hooks/useFilters";
 import { buildIndex, search } from "../services/search";
 import { fmtSigned, fold, slug } from "../utils/format";
 import { change, net, smooth, windowSum } from "../utils/series";
@@ -42,7 +43,7 @@ describe("reference data", () => {
 
 describe("monitor service", () => {
   it("maps every snapshot party and topic name onto the reference lists", async () => {
-    const d = await loadMonitor();
+    const d = (await loadMonitor()).plain;
     expect(d.weeks).toHaveLength(raw.weeks.length);
     expect(d.partialWeek).toBe(d.weeks.length - 1);
     for (const [, c] of d.party) expect(c.series.n).toHaveLength(d.weeks.length);
@@ -51,11 +52,26 @@ describe("monitor service", () => {
     expect(d.politician.size).toBe(POLITICIANS.length);
     expect(partyById.get("pro")?.leader).toBe("Jesse Klaver");
   });
+
+  it("filters by tone, source and focus from the cube", async () => {
+    const base = await loadMonitor();
+    const all = view(base, { ...DEFAULT_FILTERS, period: 52, preset: 52 });
+    const neg = view(base, { ...DEFAULT_FILTERS, period: 52, preset: 52, tone: "neg" });
+    const pvv = all.party.get("pvv")!.totals;
+    expect(neg.party.get("pvv")!.totals.n).toBe(pvv.neg);
+    const social = view(base, { ...DEFAULT_FILTERS, period: 52, preset: 52, source: "social" });
+    expect(social.party.get("pvv")!.totals.n).toBe(pvv.social);
+    const focus = view(base, { ...DEFAULT_FILTERS, period: 52, preset: 52, focus: "party:pvv" });
+    expect(focus.party.get("pvv")!.totals.n).toBe(pvv.n);
+    expect(focus.total.n.reduce((a, b) => a + b, 0)).toBe(pvv.n);
+    for (const [id, c] of focus.topic) expect(c.totals.n).toBeLessThanOrEqual(all.topic.get(id)!.totals.n);
+    expect(view(base, { ...DEFAULT_FILTERS, period: 52, preset: 52, focus: "party:pvv" }, false).total).toEqual(all.total);
+  });
 });
 
 describe("search", () => {
   it("finds people by surname, topics by English synonyms, and terms", async () => {
-    const d = await loadMonitor();
+    const d = (await loadMonitor()).plain;
     const idx = buildIndex(d, "nl");
     expect(search(idx, "bontenbal")[0].id).toBe("henri-bontenbal");
     expect(search(idx, "housing")[0].id).toBe("wonen");

@@ -3,7 +3,7 @@ export type Lang = "nl" | "en";
 /** Platform names as readers know them. */
 export const PLATFORM_LABEL: Record<string, string> = {
   google_news: "Google News", news: "Nieuwssites (RSS)", gdelt: "GDELT", mastodon: "Mastodon", youtube: "YouTube",
-  reddit: "Reddit", telegram: "Telegram", bluesky: "Bluesky", x: "X",
+  reddit: "Reddit", telegram: "Telegram", bluesky: "Bluesky", x: "X", youtube_comment: "YouTube-reacties",
 };
 
 export const LAYER_LABEL: Record<Lang, Record<string, string>> = {

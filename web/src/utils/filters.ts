@@ -1,12 +1,4 @@
-import type { Filters } from "../hooks/useFilters";
 import { sum } from "./series";
-
-/** Weekly counts for the chosen kind of source. */
-export function counts(s: { n: number[]; soc: number[] }, source: Filters["source"]): number[] {
-  if (source === "social") return s.soc;
-  if (source === "news") return s.n.map((v, i) => v - s.soc[i]);
-  return s.n;
-}
 
 /** [start, end) of the selected period: the last `period` complete weeks. */
 export const windowOf = (partialWeek: number, period: number): [number, number] => [Math.max(0, partialWeek - period), partialWeek];
@@ -19,7 +11,7 @@ export function inPeriod(xs: number[], partialWeek: number, period: number, minB
   return { now, change: before != null && before >= minBase ? now / before - 1 : null };
 }
 
-/** Tone counts inside the period (tone covers all sources). */
+/** Tone counts inside the period. */
 export function toneIn(s: { n: number[]; pos: number[]; neg: number[] }, partialWeek: number, period: number) {
   const [a, b] = windowOf(partialWeek, period);
   return { n: sum(s.n.slice(a, b)), pos: sum(s.pos.slice(a, b)), neg: sum(s.neg.slice(a, b)) };

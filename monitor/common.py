@@ -20,7 +20,7 @@ NEWS_PLATFORMS = {"news", "google_news", "gdelt"}
 PLATFORM_LABELS = {
     "news": "News sites (RSS)", "google_news": "Google News", "gdelt": "GDELT news",
     "bluesky": "Bluesky", "mastodon": "Mastodon", "reddit": "Reddit", "telegram": "Telegram",
-    "youtube": "YouTube", "x": "X / Twitter",
+    "youtube": "YouTube", "youtube_comment": "YouTube comments", "x": "X / Twitter",
 }
 
 USER_AGENT = ("Mozilla/5.0 (compatible; DutchPoliticalMediaMonitor/2.0; research; "

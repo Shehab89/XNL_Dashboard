@@ -3,6 +3,7 @@
     python -m monitor.pipeline run                  # collect from all sources, analyse, store
     python -m monitor.pipeline run --only news,bluesky --hours 24
     python -m monitor.pipeline backfill --days 365   # one-off: collect the past year from sources searchable by date
+    python -m monitor.pipeline probe --only news     # test the sources: per-source counts and failed feeds, nothing stored
     python -m monitor.pipeline demo                 # fill the local store with fictional demo data
     python -m monitor.pipeline queries              # print the search queries as JSON (used by the X scraper)
 """
@@ -13,11 +14,12 @@ import logging
 import re
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from . import llm
-from .collectors import (GOOGLE_NEWS, collect_all, history_gdelt, history_google_news, history_mastodon,
-                         search_queries)
+from .collectors import (COLLECTORS, GOOGLE_NEWS, collect_all, history_gdelt, history_google_news,
+                         history_mastodon, search_queries)
 from .common import NEWS_PLATFORMS, Http, env, load_yaml, log, make_item
 from .nlp import Tagger, analyse, politician_spec
 from .storage import LocalStore, SupabaseStore, get_store
@@ -204,6 +206,40 @@ def backfill(days=365, window_days=7, until=None, sources=("google_news", "gdelt
     return 0
 
 
+def probe(only=None, hours=24):
+    """Run the collectors without analysis or storage and print what each source returns and which URLs failed."""
+    sources_cfg, entities = load_yaml("sources.yaml"), load_yaml("entities.yaml")
+    http, calls = Http(), []
+    session_get = http.session.get
+
+    def traced(url, *args, **kwargs):  # record every request's answer (the URL without its query parameters)
+        try:
+            resp = session_get(url, *args, **kwargs)
+        except Exception as exc:
+            calls.append((url, type(exc).__name__))
+            raise
+        calls.append((url, resp.status_code))
+        return resp
+
+    http.session.get = traced
+    lines = []
+    for name in COLLECTORS:
+        if only and name not in only:
+            continue
+        start = len(calls)
+        items, _ = collect_all(sources_cfg, entities, only={name}, hours=hours, http=http)
+        failed = [(u, status) for u, status in calls[start:] if status != 200]
+        lines.append(f"\n== {name}: {len(items)} items, {len(calls) - start} requests, {len(failed)} failed")
+        per_source = Counter(i["source"] for i in items).most_common()
+        shown = per_source[:10] if name in ("google_news", "gdelt") else per_source
+        lines += [f"   {n:6d}  {source}" for source, n in shown]
+        if len(shown) < len(per_source):
+            lines.append(f"          (+{len(per_source) - len(shown)} more sources)")
+        lines += [f"   FAILED {status}  {u[:110]}" for u, status in failed]
+    print("\n".join(lines))
+    return 0
+
+
 def demo(days=30):
     from .demo import make_demo_items
 
@@ -227,6 +263,9 @@ def main(argv=None):
     p_back.add_argument("--days", type=int, default=365)
     p_back.add_argument("--until", help="newest date to collect (YYYY-MM-DD), to resume an interrupted backfill")
     p_back.add_argument("--sources", default="google_news,gdelt,mastodon")
+    p_probe = sub.add_parser("probe", help="test the sources: per-source counts and failed URLs (nothing is stored)")
+    p_probe.add_argument("--only", help="comma-separated collectors, e.g. news,youtube")
+    p_probe.add_argument("--hours", type=int, default=24)
     sub.add_parser("demo", help="write fictional demo data to the local store")
     sub.add_parser("queries", help="print the search queries as JSON")
     sub.add_parser("publish", help="re-tag politicians and rebuild the website snapshot (no collection)")
@@ -239,6 +278,8 @@ def main(argv=None):
     if args.cmd == "backfill":
         until = datetime.strptime(args.until, "%Y-%m-%d").replace(tzinfo=timezone.utc) if args.until else None
         return backfill(args.days, until=until, sources=tuple(args.sources.split(",")))
+    if args.cmd == "probe":
+        return probe(set(args.only.split(",")) if args.only else None, args.hours)
     if args.cmd == "queries":
         print(json.dumps([{"label": label, "terms": terms}
                           for label, terms in search_queries(load_yaml("entities.yaml"))], ensure_ascii=False))

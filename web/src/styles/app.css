@@ -183,7 +183,7 @@ main { min-height: 70vh; }
   .search-trigger .label { display: none; }
   .search-trigger kbd { display: none; }
 }
-@media (max-width: 480px) { .brand-name em { display: none; } }
+/* brand stays whole on phones */
 
 .drawer-backdrop { position: fixed; inset: 0; background: rgba(27, 26, 23, .35); z-index: 60; }
 .drawer {
@@ -430,9 +430,21 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-s); }
 /* ---------- filters ---------- */
 .filterbar { border-bottom: 1px solid var(--rule-soft); background: var(--paper); position: sticky; top: var(--header-h); z-index: 30; }
 .filterbar-inner { display: flex; gap: var(--space-3) var(--space-5); flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; align-items: center; }
+.filter-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
 .filter-label { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
 .small-seg button { padding: 4px 10px; font-size: var(--fs-xs); }
-@media (max-width: 600px) { .filterbar { position: static; } .small-seg button { padding: 6px 8px; } }
+.small-input { height: 30px; padding: 0 8px; font-size: var(--fs-xs); width: auto; max-width: 13rem; }
+.small-btn { padding: 4px 10px; font-size: var(--fs-xs); }
+.filter-toggle { display: none; }
+.filter-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 8px; background: var(--ink); color: var(--paper); font: 600 11px var(--font-mono); border-radius: 9px; }
+@media (max-width: 700px) {
+  .filterbar { position: static; }
+  .filter-toggle { display: inline-flex; align-items: center; margin: 8px 0; padding: 6px 12px; border: 1px solid var(--rule); background: var(--card); font: 600 var(--fs-xs) var(--font-sans, inherit); color: var(--ink); cursor: pointer; }
+  .filterbar-inner { display: none; padding-top: 0; }
+  .filterbar-inner.open { display: flex; }
+  .small-seg button { padding: 6px 8px; }
+  .small-input { max-width: 100%; }
+}
 
 /* collapsible provenance */
 details.source-d { margin-top: var(--space-3); font: 400 11.5px/1.45 var(--font-mono); color: var(--ink-3); }

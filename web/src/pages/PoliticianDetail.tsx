@@ -6,10 +6,11 @@ import { Breadcrumbs, Delta, HeadlineList, LayerTag, SectionHead, Source, Stat, 
 import { WithData } from "../components/WithData";
 import { partyById, politicianById, topicById } from "../data/reference";
 import { useFilters } from "../hooks/useFilters";
+import { useHeadlines } from "../hooks/useHeadlines";
 import { useLang } from "../hooks/useLang";
 import { useTitle } from "../hooks/useTitle";
 import { MONITOR_SOURCE, type MonitorData } from "../services/monitor";
-import { chartStart, counts, inPeriod, toneIn } from "../utils/filters";
+import { chartStart, inPeriod, toneIn } from "../utils/filters";
 import { fmtInt } from "../utils/format";
 import NotFound from "./NotFound";
 
@@ -26,9 +27,10 @@ function PoliticianView({ data, id }: { data: MonitorData; id: string }) {
   useTitle(pol.name);
   const party = partyById.get(pol.partyId)!;
   const cov = data.politician.get(id)!;
+  const headlines = useHeadlines(data, cov.headlines, { kind: "politician", id });
   const pw = data.partialWeek;
-  const weekly = counts(cov.series, f.source);
-  const partyWeekly = counts(data.party.get(party.id)!.series, f.source);
+  const weekly = cov.series.n;
+  const partyWeekly = data.party.get(party.id)!.series.n;
   const now = inPeriod(weekly, pw, f.period);
   const tone = toneIn(cov.series, pw, f.period);
   const from = chartStart(data.weeks.length, f.period);
@@ -61,7 +63,7 @@ function PoliticianView({ data, id }: { data: MonitorData; id: string }) {
             <Bars unit="%" rows={topics.slice(0, 8).map((l) => ({ id: l.to, label: topicName(l.to), to: `/onderwerpen/${l.to}`,
               value: (100 * l.n) / withTopic, color: party.color, title: `${fmtInt(l.n, lang)} ${t("berichten", "items")}` }))} />
           ) : <p className="small muted">{t("Te weinig berichten.", "Too few items.")}</p>}
-          <Source sources={[MONITOR_SOURCE]} method={t("12 maanden; aandeel van berichten met deze persoon én een onderwerp.", "12 months; share of items naming this person and a topic.")} />
+          <Source sources={[MONITOR_SOURCE]} method={t("Aandeel van de berichten in de gekozen periode met deze persoon én een onderwerp.", "Share of items in the period naming this person and a topic.")} />
         </div>
         <div className="span-5">
           <SectionHead title={t("Toon", "Tone")} aside={<LayerTag layer="analysis" />} />
@@ -92,7 +94,7 @@ function PoliticianView({ data, id }: { data: MonitorData; id: string }) {
         </div>
         <div className="span-4">
           <SectionHead title={t("Recent", "Recent")} aside={<LayerTag layer="data" />} />
-          <HeadlineList items={cov.headlines} empty={t("Geen berichten in de laatste 30 dagen.", "No items in the last 30 days.")} />
+          <HeadlineList items={headlines} empty={t("Geen berichten die bij deze filters passen.", "No items match these filters.")} />
         </div>
       </section>
 

@@ -264,6 +264,91 @@ def test_parse_bluesky_mastodon_gdelt():
     assert gd["source"] == "nu.nl" and gd["published_at"].startswith("2026-09-29T08:15")
 
 
+def _status(i, minutes_ago):
+    return {"id": str(i), "uri": f"https://mastodon.nl/users/a/statuses/{i}", "content": f"post {i}",
+            "created_at": (NOW - timedelta(minutes=minutes_ago)).isoformat(), "account": {"acct": "a"}}
+
+
+def test_mastodon_timeline_pages_back_to_since():
+    pages = {None: [_status(6, 10), _status(5, 20)], "5": [_status(4, 30), _status(3, 300)], "3": [_status(2, 400)]}
+    asked = []
+
+    class FakeHttp:
+        def get(self, url, params=None, **kw):
+            asked.append((url, params))
+            return pages[params.get("max_id")]
+
+    since = NOW - timedelta(hours=2)
+    items = col.mastodon_timeline(FakeHttp(), "mastodon.nl", "/api/v1/timelines/public", since, 5, {"local": "true"})
+    assert [i["text"] for i in items] == ["post 6", "post 5", "post 4"]  # stops at the page reaching past `since`
+    assert asked[0] == ("https://mastodon.nl/api/v1/timelines/public", {"local": "true", "limit": 40})
+    assert asked[1][1]["max_id"] == "5" and len(asked) == 2
+
+
+def test_collect_gdelt_adds_broad_queries(monkeypatch):
+    monkeypatch.setattr(col.time, "sleep", lambda s: None)
+    asked = []
+
+    class FakeHttp:
+        def get(self, url, params=None, **kw):
+            asked.append(params)
+            return {"articles": []}
+
+        def is_down(self, url):
+            return False
+
+    cfg = {"gdelt": {"maxrecords": 250, "extra_queries": ["sourcecountry:netherlands kabinet"]}}
+    col.collect_gdelt(cfg, FakeHttp(), SINCE, [("PVV", ["PVV", "Wilders"]), ("x", ["ab"])])
+    assert [p["query"] for p in asked] == ["(PVV OR Wilders) sourcelang:dutch", "sourcecountry:netherlands kabinet"]
+    assert {p["maxrecords"] for p in asked} == {250}
+
+
+YT_COMMENTS = {"nextPageToken": "p2", "items": [{"snippet": {"totalReplyCount": 2, "topLevelComment": {
+    "id": "Ugx1", "snippet": {"textDisplay": "Wilders heeft gelijk over asiel", "authorDisplayName": "@kiezer",
+                              "likeCount": 7, "publishedAt": "2026-09-29T08:00:00Z"}}}}]}
+
+
+def test_parse_youtube_comments():
+    it = col.parse_youtube_comments(YT_COMMENTS, "NOS", "vid1")[0]
+    assert it["platform"] == "youtube_comment" and it["source"] == "YouTube-reacties: NOS"
+    assert it["url"] == "https://www.youtube.com/watch?v=vid1&lc=Ugx1" and it["author"] == "@kiezer"
+    assert (it["likes"], it["replies"]) == (7, 2) and it["published_at"].startswith("2026-09-29T08:00")
+
+
+def test_collect_youtube_comments_skips_closed_videos_and_stops_on_quota():
+    class Resp:
+        def __init__(self, status, data=None, text=""):
+            self.status_code, self.text, self._data = status, text, data
+
+        def json(self):
+            return self._data
+
+    answers = {("a", None): Resp(200, YT_COMMENTS), ("a", "p2"): Resp(200, {"items": YT_COMMENTS["items"]}),
+               ("b", None): Resp(403, text='{"reason": "commentsDisabled"}'),
+               ("c", None): Resp(403, text='{"reason": "quotaExceeded"}'), ("d", None): Resp(200, YT_COMMENTS)}
+    asked = []
+
+    class FakeHttp:
+        class session:
+            @staticmethod
+            def get(url, params=None, timeout=None):
+                asked.append(params["videoId"])
+                return answers[(params["videoId"], params.get("pageToken"))]
+
+    items = col.collect_youtube_comments(FakeHttp(), "k", [("a", "NOS"), ("b", "NOS"), ("c", "NOS"), ("d", "NOS")],
+                                         pages=3)
+    assert len(items) == 2 and asked == ["a", "a", "b", "c"]  # "d" is never asked once the quota is used up
+
+
+def test_probe_prints_per_source_counts(monkeypatch, capsys):
+    fake = lambda cfg, **k: [make_item("news", "NOS", "a", uid="1"), make_item("news", "NOS", "b", uid="2")]
+    monkeypatch.setattr(col, "COLLECTORS", {"news": fake})
+    monkeypatch.setattr(pipeline, "COLLECTORS", {"news": fake})
+    assert pipeline.probe() == 0
+    out = capsys.readouterr().out
+    assert "== news: 2 items, 0 requests, 0 failed" in out and "2  NOS" in out
+
+
 def test_search_queries_cover_parties_politicians_and_issues():
     entities = load_yaml("entities.yaml")
     queries = dict(col.search_queries(entities))

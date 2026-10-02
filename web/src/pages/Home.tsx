@@ -9,6 +9,7 @@ import { Delta, HeadlineList, LayerTag, SectionHead, Source } from "../component
 import { WithData } from "../components/WithData";
 import { PARTIES, REF, partyById, politicianById, topicById } from "../data/reference";
 import { useFilters } from "../hooks/useFilters";
+import { useHeadlines } from "../hooks/useHeadlines";
 import { useLang } from "../hooks/useLang";
 import { useTitle } from "../hooks/useTitle";
 import { MONITOR_SOURCE, type MonitorData } from "../services/monitor";
@@ -38,6 +39,7 @@ function HomeView({ data }: { data: MonitorData }) {
   const topFive = topics.slice(0, 5);
   const latest = [...data.headlines].sort((a, b) => b.date.localeCompare(a.date))
     .filter((h, i, all) => all.findIndex((x) => x.url === h.url) === i).slice(0, 6);
+  const liveLatest = useHeadlines(data, latest).slice(0, 6);
   const from = chartStart(data.weeks.length, f.period);
 
   const submit = (e: React.FormEvent) => { e.preventDefault(); if (q.trim()) navigate(`/zoeken?q=${encodeURIComponent(q.trim())}`); };
@@ -129,13 +131,13 @@ function HomeView({ data }: { data: MonitorData }) {
         </div>
         <div className="span-4">
           <SectionHead title={t("Laatste berichten", "Latest coverage")} aside={<LayerTag layer="data" />} />
-          <HeadlineList items={latest} />
+          <HeadlineList items={liveLatest} />
         </div>
       </section>
 
       <section className="section">
         <SectionHead title={t("Welke partij hoort bij welk onderwerp?", "Which party goes with which topic?")} aside={<LayerTag layer="data" />}>
-          {t("12 maanden. Beweeg over een naam.", "12 months. Hover a name.")}
+          {t("In de gekozen periode. Beweeg over een naam.", "In the selected period. Hover a name.")}
         </SectionHead>
         <Arcs links={data.links.filter((l) => l.n >= 40)} />
         <Source sources={[MONITOR_SOURCE]} method={t("Lijndikte: berichten waarin beide genoemd worden. Samen genoemd zegt niets over standpunt.",

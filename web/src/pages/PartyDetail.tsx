@@ -7,7 +7,8 @@ import { WithData } from "../components/WithData";
 import { POLITICIANS, REF, TOTAL_SEATS, partyById, politicianById, topicById } from "../data/reference";
 import { usePeriodLabel } from "../components/FilterBar";
 import { useFilters } from "../hooks/useFilters";
-import { chartStart, counts, inPeriod, toneIn } from "../utils/filters";
+import { useHeadlines } from "../hooks/useHeadlines";
+import { chartStart, inPeriod, toneIn } from "../utils/filters";
 import { useLang } from "../hooks/useLang";
 import { useTitle } from "../hooks/useTitle";
 import { MONITOR_SOURCE, type MonitorData } from "../services/monitor";
@@ -26,8 +27,9 @@ function PartyView({ data, id }: { data: MonitorData; id: string }) {
   const f = useFilters();
   const periodLabel = usePeriodLabel();
   const cov = data.party.get(id)!;
+  const headlines = useHeadlines(data, cov.headlines, { kind: "party", id });
   const pw = data.partialWeek;
-  const weekly = counts(cov.series, f.source);
+  const weekly = cov.series.n;
   const now = inPeriod(weekly, pw, f.period);
   const tone = toneIn(cov.series, pw, f.period);
   const from = chartStart(data.weeks.length, f.period);
@@ -77,7 +79,7 @@ function PartyView({ data, id }: { data: MonitorData; id: string }) {
         </div>
         <div className="span-4">
           <SectionHead title={t("Recent", "Recent")} aside={<LayerTag layer="data" />} />
-          <HeadlineList items={cov.headlines} />
+          <HeadlineList items={headlines} />
         </div>
       </section>
 
