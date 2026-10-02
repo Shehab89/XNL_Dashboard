@@ -266,7 +266,10 @@ BRIEF_TEXT = {
         "monitored": "Monitored **{n:,}** political items: **{news:,}** news articles and **{social:,}** social-media "
                      "posts from **{sources}** sources.",
         "dominates": "**{name}** dominates the conversation with **{share:.0%}** share of voice.",
-        "riser": "Biggest riser this week: **{name}** (+{pts:.1f} pts share of voice vs. the week before).",
+        "riser": "Biggest riser in the last 7 days: **{name}** (+{pts:.1f} pts share of voice vs. the 7 days before).",
+        "versus": "Compared with the previous {days} days: **{change:+.0%}** items, net tone **{net:+.0f}** "
+                  "(was {net_before:+.0f}).",
+        "versus_party": "Biggest tone shift vs. the previous {days} days: **{name}** ({before:+.0f} → {now:+.0f}).",
         "extremes": "Most negative coverage: **{worst}** (net {worst_net:+.0f}); most positive: **{best}** "
                     "(net {best_net:+.0f}).",
         "harsher": "harsher on social media than in the news",
@@ -280,7 +283,12 @@ BRIEF_TEXT = {
         "monitored": "**{n:,}** politieke items gevolgd: **{news:,}** nieuwsartikelen en **{social:,}** "
                      "social-mediaberichten uit **{sources}** bronnen.",
         "dominates": "**{name}** domineert het gesprek met **{share:.0%}** van de aandacht (share of voice).",
-        "riser": "Grootste stijger deze week: **{name}** (+{pts:.1f} procentpunt share of voice t.o.v. de week ervoor).",
+        "riser": "Grootste stijger in de laatste 7 dagen: **{name}** (+{pts:.1f} procentpunt share of voice t.o.v. de "
+                 "7 dagen ervoor).",
+        "versus": "Vergeleken met de {days} dagen ervoor: **{change:+.0%}** items, netto toon **{net:+.0f}** "
+                  "(was {net_before:+.0f}).",
+        "versus_party": "Grootste toonverschuiving t.o.v. de {days} dagen ervoor: **{name}** ({before:+.0f} → "
+                        "{now:+.0f}).",
         "extremes": "Meest negatieve berichtgeving: **{worst}** (netto {worst_net:+.0f}); meest positief: **{best}** "
                     "(netto {best_net:+.0f}).",
         "harsher": "duidelijk negatiever op sociale media dan in het nieuws",
@@ -294,29 +302,44 @@ BRIEF_TEXT = {
 }
 
 
-def executive_brief(df, parties_col="parties", lang="en"):
-    """Short, plain-language findings for the briefing page (English or Dutch)."""
+def executive_brief(df, parties_col="parties", lang="en", parties=None, issues=None, previous=None, days=None):
+    """Short, plain-language findings for the briefing page (English or Dutch), computed from the filtered items.
+
+    parties / issues limit the party and issue findings to the ones selected in the dashboard; previous is the
+    same selection for the period of equal length just before, used for the "compared with" lines."""
     t = BRIEF_TEXT.get(lang, BRIEF_TEXT["en"])
     lines = []
     if df.empty:
         return lines
+    keep = (lambda frame, col, names: frame[frame[col].isin(names)] if names else frame)
     n_news = (df["channel"] == "News media").sum()
     lines.append(t["monitored"].format(n=len(df), news=n_news, social=len(df) - n_news,
                                        sources=df["source"].nunique()))
+    if previous is not None and len(previous) >= 20 and days:
+        lines.append(t["versus"].format(days=days, change=len(df) / len(previous) - 1, net=_net(df),
+                                        net_before=_net(previous)))
 
-    sov = share_of_voice(df, parties_col, by_channel=False)
+    sov = keep(share_of_voice(df, parties_col, by_channel=False), parties_col, parties)
     if not sov.empty:
         top = sov.iloc[0]
         lines.append(t["dominates"].format(name=top[parties_col], share=top["share"]))
-    mom = momentum(df, parties_col)
-    if not mom.empty and mom.iloc[0]["change"] > 0.02:
-        m = mom.iloc[0]
-        lines.append(t["riser"].format(name=m[parties_col], pts=100 * m["change"]))
-    sent = sentiment_table(df, parties_col, min_n=20)
+    if days is None or days >= 14:
+        mom = keep(momentum(df, parties_col), parties_col, parties)
+        if not mom.empty and mom.iloc[0]["change"] > 0.02:
+            m = mom.iloc[0]
+            lines.append(t["riser"].format(name=m[parties_col], pts=100 * m["change"]))
+    sent = keep(sentiment_table(df, parties_col, min_n=20), parties_col, parties)
     if not sent.empty:
         worst, best = sent.sort_values("net").iloc[0], sent.sort_values("net").iloc[-1]
         lines.append(t["extremes"].format(worst=worst[parties_col], worst_net=worst["net"], best=best[parties_col],
                                           best_net=best["net"]))
+        if previous is not None and days:
+            before = sentiment_table(previous, parties_col, min_n=20).set_index(parties_col)["net"]
+            shift = sent.set_index(parties_col)["net"].sub(before).dropna()
+            if len(shift) and shift.abs().max() >= 8:
+                name = shift.abs().idxmax()
+                lines.append(t["versus_party"].format(days=days, name=name, before=before[name],
+                                                      now=sent.set_index(parties_col)["net"][name]))
         both = sent.head(8)
         both = both[(both["news_n"] >= 20) & (both["social_n"] >= 20)].copy()
         both["gap"] = both["social_net"] - both["news_net"]
@@ -324,12 +347,13 @@ def executive_brief(df, parties_col="parties", lang="en"):
         if g is not None and abs(g["gap"]) >= 10:
             lines.append(t["gap_tone"].format(name=g[parties_col], where=t["harsher"] if g["gap"] < 0 else t["warmer"],
                                               social=g["social_net"], news=g["news_net"]))
-    issues = share_of_voice(df, "issues", by_channel=False)
-    if not issues.empty:
-        lines.append(t["top_issue"].format(first=issues.iloc[0]["issues"], share=issues.iloc[0]["share"],
-                                           second=issues.iloc[1]["issues"] if len(issues) > 1 else "-"))
+    issue_sov = keep(share_of_voice(df, "issues", by_channel=False), "issues", issues)
+    if not issue_sov.empty:
+        lines.append(t["top_issue"].format(first=issue_sov.iloc[0]["issues"], share=issue_sov.iloc[0]["share"],
+                                           second=issue_sov.iloc[1]["issues"] if len(issue_sov) > 1 else "-"))
     gap = agenda_gap(df)
+    gap = gap[gap["issue"].isin(issues)] if issues and not gap.empty else gap
     if not gap.empty and gap["gap"].max() > 0.03:
-        g = gap.iloc[-1]
+        g = gap.sort_values("gap").iloc[-1]
         lines.append(t["agenda"].format(issue=g["issue"], social=g["social"], news=g["news"]))
     return lines

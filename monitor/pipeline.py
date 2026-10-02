@@ -85,6 +85,10 @@ def run(only=None, hours=None, backend=None, retention_days=400, extra_json=None
     log.info("Saved %d items to %s", saved, store.name)
     if backend in (None, "", "llm"):
         relabel_backlog(store, entities, int(env("LLM_BACKLOG", "1500")))
+    try:
+        log.info("Removed %d duplicate items", store.remove_duplicates())
+    except Exception as exc:  # e.g. the database function is not installed yet (database/schema.sql)
+        log.warning("Duplicate removal skipped: %s", str(exc)[:200])
     if retention_days:
         store.prune(retention_days)
 
@@ -172,6 +176,10 @@ def backfill(days=365, window_days=7, until=None, sources=("google_news", "gdelt
         save(raw, f"{w_start:%Y-%m-%d} – {w_end:%Y-%m-%d}")
         w_end = w_start
     log.info("Backfill done: %d political items saved for %s – %s", total, f"{start_all:%Y-%m-%d}", f"{end:%Y-%m-%d}")
+    try:
+        log.info("Removed %d duplicate items", store.remove_duplicates())
+    except Exception as exc:
+        log.warning("Duplicate removal skipped: %s", str(exc)[:200])
     return 0
 
 

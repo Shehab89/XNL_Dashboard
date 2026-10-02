@@ -4,6 +4,7 @@
 * LocalStore    - a Parquet file in data/ (for running everything on your own computer).
 """
 
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,12 @@ def to_frame(rows):
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     df["sentiment_score"] = pd.to_numeric(df["sentiment_score"], errors="coerce")
     return df
+
+
+def item_key(title, text):
+    """Duplicate key: the title (or the first 160 characters of the text), lower case, without punctuation."""
+    base = title if isinstance(title, str) and title else (text or "")[:160]
+    return re.sub(r"[^a-z0-9à-ÿ]+", " ", base.lower()).strip()[:120]
 
 
 class LocalStore:
@@ -69,6 +76,19 @@ class LocalStore:
             keep["published_at"] = keep["published_at"].astype(str)
             keep.to_parquet(self.path, index=False)
 
+    def remove_duplicates(self):
+        """Same rule as remove_duplicate_items in database/schema.sql."""
+        df = self._read()
+        if df.empty:
+            return 0
+        keys = [item_key(t, x) for t, x in zip(df["title"], df["text"])]
+        rank = df.assign(_key=keys, _llm=(df["analysed_by"] != "llm"),
+                         _src=df["platform"].map({"news": 0, "google_news": 1, "gdelt": 2}).fillna(3))
+        rank = rank.sort_values(["_llm", "_src", "published_at", "id"])
+        dup = rank[(rank["_key"].str.len() >= 25) & rank.duplicated("_key")]["id"]
+        self.delete(list(dup))
+        return len(dup)
+
     def llm_done_ids(self, ids):
         df = self._read()
         return set(df.loc[df["analysed_by"] == "llm", "id"]) & set(ids)
@@ -100,11 +120,11 @@ class SupabaseStore:
         }
         self.http = Http(pause=0)
 
-    def _request(self, method, params=None, json=None, extra=None, attempts=4):
+    def _request(self, method, params=None, json=None, extra=None, attempts=4, url=None):
         # retry dropped connections and server errors: one slow write must not lose a whole run's analysis
         for attempt in range(attempts):
             try:
-                resp = self.http.session.request(method, self.base, params=params, json=json,
+                resp = self.http.session.request(method, url or self.base, params=params, json=json,
                                                  headers={**self.headers, **(extra or {})}, timeout=(15, 120))
             except (requests.ConnectionError, requests.Timeout) as exc:
                 if attempt == attempts - 1:
@@ -118,6 +138,11 @@ class SupabaseStore:
         if resp.status_code >= 300:
             raise RuntimeError(f"Supabase {method} failed: HTTP {resp.status_code}: {resp.text[:300]}")
         return resp
+
+    def remove_duplicates(self):
+        """Delete repeated headlines/posts with the database function remove_duplicate_items (database/schema.sql)."""
+        url = self.base.rsplit("/", 1)[0] + "/rpc/remove_duplicate_items"
+        return int(self._request("POST", json={}, url=url).json() or 0)
 
     def upsert(self, items, chunk=100):
         rows = [{k: item.get(k) for k in ITEM_FIELDS} for item in items]

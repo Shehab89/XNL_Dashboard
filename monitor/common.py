@@ -169,6 +169,9 @@ class Http:
                 except ValueError:
                     log.warning("  ! %s returned invalid JSON", url.split("?")[0])
                     return None
+            if resp.status_code in (404, 410):  # a wrong address, not a blocked host: try its other pages
+                log.warning("  ! %s not found (HTTP %s)", url.split("?")[0], resp.status_code)
+                return None
             if resp.status_code not in (429, 500, 502, 503, 504):
                 log.warning("  ! %s answered HTTP %s", url.split("?")[0], resp.status_code)
                 break

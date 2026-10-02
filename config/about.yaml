@@ -1,0 +1,42 @@
+# Text of the dashboard's "About" tab, in English and Dutch. Edit freely; the dashboard reads it on every load.
+# Paragraphs are plain text. Add or remove links below (an empty link is not shown).
+
+links:
+  GitHub: https://github.com/Shehab89
+  Website: ""
+  LinkedIn: ""
+
+en:
+  eindata:
+    title: EinData
+    paragraphs:
+      - EinData builds data products that make public debate measurable. The Political Media Monitor is one of
+        them; it follows how Dutch news media and social media talk about parties, politicians and policy issues.
+      - The monitor is independent and non-partisan. Every party and every issue is measured in the same way,
+        and the method, sources and limitations are described openly on the Methodology tab.
+  author:
+    title: Shehab Al-Masri
+    paragraphs:
+      - Shehab Al-Masri is the founder of EinData and the creator of this monitor. Shehab designed what it measures
+        and how, from collecting the sources to the AI labelling and the dashboard.
+      - Questions, corrections or ideas for new sources and analyses are welcome via the links below.
+  project: Political Media Monitor · an EinData project by Shehab Al-Masri · data from public news and social
+    media sources, analysed with Google Gemini.
+
+nl:
+  eindata:
+    title: EinData
+    paragraphs:
+      - EinData maakt dataproducten die het publieke debat meetbaar maken. De Politieke Mediamonitor is daar één
+        van; hij volgt hoe Nederlandse nieuwsmedia en sociale media praten over partijen, politici en
+        beleidsthema's.
+      - De monitor is onafhankelijk en partijneutraal. Elke partij en elk thema wordt op dezelfde manier gemeten,
+        en de methode, bronnen en beperkingen staan open beschreven op het tabblad Methode.
+  author:
+    title: Shehab Al-Masri
+    paragraphs:
+      - Shehab Al-Masri is de oprichter van EinData en de maker van deze monitor. Shehab ontwierp wat de monitor
+        meet en hoe, van het verzamelen van de bronnen tot de AI-labels en het dashboard.
+      - Vragen, correcties of ideeën voor nieuwe bronnen en analyses zijn welkom via de links hieronder.
+  project: Politieke Mediamonitor · een EinData-project van Shehab Al-Masri · data uit openbare nieuws- en
+    socialemediabronnen, geanalyseerd met Google Gemini.
