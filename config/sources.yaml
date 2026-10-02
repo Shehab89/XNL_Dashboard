@@ -8,30 +8,98 @@ max_per_query: 100
 # --- NEWS MEDIA ---------------------------------------------------------------------------
 # RSS feeds of Dutch news outlets (full stream of articles; only political ones are kept).
 news_feeds:
-  NOS: [https://feeds.nos.nl/nosnieuwspolitiek, https://feeds.nos.nl/nosnieuwsbinnenland]
-  NU.nl: [https://www.nu.nl/rss/Politiek, https://www.nu.nl/rss/Binnenland]
-  de Volkskrant: [https://www.volkskrant.nl/politiek/rss.xml]
-  Trouw: [https://www.trouw.nl/politiek/rss.xml]
-  AD: [https://www.ad.nl/politiek/rss.xml]
+  # national news
+  NOS: [https://feeds.nos.nl/nosnieuwspolitiek, https://feeds.nos.nl/nosnieuwsbinnenland,
+        https://feeds.nos.nl/nosnieuwsalgemeen, https://feeds.nos.nl/nosnieuwseconomie]
+  Nieuwsuur: [https://feeds.nos.nl/nieuwsuuralgemeen]
+  NU.nl: [https://www.nu.nl/rss/Politiek, https://www.nu.nl/rss/Binnenland, https://www.nu.nl/rss/Algemeen,
+          https://www.nu.nl/rss/Economie]
+  de Volkskrant: [https://www.volkskrant.nl/politiek/rss.xml, https://www.volkskrant.nl/voorpagina/rss.xml]
+  Trouw: [https://www.trouw.nl/politiek/rss.xml, https://www.trouw.nl/voorpagina/rss.xml]
+  AD: [https://www.ad.nl/politiek/rss.xml, https://www.ad.nl/binnenland/rss.xml]
   Het Parool: [https://www.parool.nl/nederland/rss.xml]
   NRC: [https://www.nrc.nl/rss/]
-  RTL Nieuws: [https://www.rtlnieuws.nl/rss.xml]
+  RTL Nieuws: [https://www.rtlnieuws.nl/rss.xml, https://www.rtlnieuws.nl/nieuws/politiek/rss.xml]
+  De Telegraaf: [https://www.telegraaf.nl/nieuws/politiek/rss, https://www.telegraaf.nl/rss]
+  Het Financieele Dagblad: ["https://fd.nl/?rss"]
+  BNR: [https://www.bnr.nl/rss/nieuws]
+  Nederlands Dagblad: [https://www.nd.nl/rss]
+  Reformatorisch Dagblad: [https://www.rd.nl/rss]
+  Metro: [https://www.metronieuws.nl/feed/]
+  # opinion and magazines
   GeenStijl: [https://www.geenstijl.nl/feeds/recent.atom]
-  De Telegraaf: [https://www.telegraaf.nl/nieuws/politiek/rss]
   EW: [https://www.ewmagazine.nl/feed/]
   Follow the Money: [https://www.ftm.nl/feed]
   Joop: [https://www.bnnvara.nl/joop/rss]
+  ThePostOnline: [https://tpo.nl/feed/]
+  De Dagelijkse Standaard: [https://www.dagelijksestandaard.nl/feed/]
+  Wynia's Week: [https://www.wyniasweek.nl/feed/]
+  OneWorld: [https://www.oneworld.nl/feed/]
+  De Groene Amsterdammer: [https://www.groene.nl/feed]
+  Sargasso: [https://sargasso.nl/feed/]
+  Stuk Rood Vlees: [https://www.stukroodvlees.nl/feed/]
+  Villamedia: [https://www.villamedia.nl/rss]
+  # regional public broadcasters
+  Omroep Brabant: [https://www.omroepbrabant.nl/rss/index.xml]
+  NH Nieuws: [https://www.nhnieuws.nl/rss/index.xml]
+  RTV Utrecht: [https://www.rtvutrecht.nl/rss/index.xml]
+  Omroep Gelderland: [https://www.gld.nl/rss/index.xml]
+  RTV Oost: [https://www.rtvoost.nl/rss/index.xml]
+  RTV Noord: [https://www.rtvnoord.nl/rss/index.xml]
+  Omroep West: [https://www.omroepwest.nl/rss/index.xml]
+  Rijnmond: [https://www.rijnmond.nl/rss/index.xml]
+  L1: [https://www.l1nieuws.nl/rss/index.xml]
+  Omrop Fryslân: [https://www.omropfryslan.nl/rss/index.xml]
+  Omroep Zeeland: [https://www.omroepzeeland.nl/rss/index.xml]
+  RTV Drenthe: [https://www.rtvdrenthe.nl/rss/index.xml]
+  Omroep Flevoland: [https://www.omroepflevoland.nl/rss/index.xml]
+  # official sources
+  Rijksoverheid: [https://feeds.rijksoverheid.nl/nieuws.rss]
+  Tweede Kamer: [https://www.tweedekamer.nl/rss/kamernieuws]
+  Eerste Kamer: [https://www.eerstekamer.nl/rss/nieuws]
 
 # Google News search (covers hundreds of Dutch outlets incl. regional ones). One search per
-# party and per issue is run automatically; these are extra searches on top of that.
+# party, politician and issue is run automatically; these are extra searches on top of that.
+# `feeds` are Google News sections read as a whole (no search).
 google_news:
   enabled: true
-  extra_queries: ["Tweede Kamer", "Eerste Kamer", "kabinet", "minister", "staatssecretaris", "coalitie",
-                  "Kamerdebat", "motie", "formatie", "Provinciale Staten", "gemeenteraad", "Haagse politiek"]
+  feeds: ["https://news.google.com/rss/headlines/section/topic/NATION?hl=nl&gl=NL&ceid=NL:nl",
+          "https://news.google.com/rss?hl=nl&gl=NL&ceid=NL:nl"]
+  extra_queries: [
+    # parliament and government
+    "Tweede Kamer", "Eerste Kamer", "kabinet", "minister", "staatssecretaris", "coalitie", "oppositie",
+    "Kamerdebat", "Kamervragen", "motie", "amendement", "ministerraad", "premier", "formatie", "informateur",
+    "coalitieakkoord", "vertrouwensvotum", "Provinciale Staten", "gemeenteraad", "Haagse politiek",
+    "peiling", "verkiezingen", "Prinsjesdag", "Miljoenennota", "Troonrede", "Voorjaarsnota",
+    "Algemene Politieke Beschouwingen", "Raad van State", "wetsvoorstel",
+    # migration
+    "asielzoekerscentrum", "azc", "spreidingswet", "asielbeleid", "migratiedeal", "IND", "statushouders",
+    "gezinshereniging", "arbeidsmigratie", "Ter Apel",
+    # housing, money, work
+    "huurprijzen", "woningnood", "woningbouw", "huurbevriezing", "koopkracht", "inflatie", "energierekening",
+    "belastingplan", "box 3", "minimumloon", "pensioenen", "AOW", "bestaanszekerheid", "armoede",
+    "toeslagenaffaire", "kinderopvangtoeslag", "huurtoeslag", "bezuinigingen",
+    # care, education
+    "eigen risico", "zorgpremie", "zorgverzekering", "jeugdzorg", "ouderenzorg", "onderwijs bezuinigingen",
+    "studiefinanciering", "leraren tekort",
+    # climate, farming, energy
+    "stikstof", "boeren", "boerenprotest", "klimaatbeleid", "klimaatdoelen", "kernenergie", "windparken",
+    "Groningen gaswinning", "Schiphol krimp",
+    # security, foreign policy
+    "defensie-uitgaven", "NAVO", "Oekraïne", "Rusland sancties", "Gaza", "Israël", "Europese Unie",
+    "Brussel Nederland", "politie", "ondermijning", "discriminatie", "demonstratie Den Haag"]
 
 # GDELT: global news database, free API. Adds outlets that are not in Google News.
+# One search per party, politician and issue, plus these broad searches (250 articles each, GDELT's maximum).
 gdelt:
   enabled: true
+  maxrecords: 250
+  extra_queries:
+    - 'sourcecountry:netherlands (kabinet OR minister OR "Tweede Kamer" OR coalitie OR oppositie)'
+    - 'sourcecountry:netherlands (asiel OR migratie OR stikstof OR huur OR koopkracht OR zorg)'
+    - 'sourcecountry:netherlands (verkiezingen OR peiling OR formatie OR premier OR partij)'
+    - 'sourcelang:dutch ("Tweede Kamer" OR kabinet OR ministerraad OR Kamerdebat)'
+    - 'sourcecountry:belgium sourcelang:dutch (Nederland OR Nederlandse) (kabinet OR verkiezingen OR premier)'
 
 # --- SOCIAL MEDIA -------------------------------------------------------------------------
 # Bluesky: searched for every party and issue (Dutch-language posts only).
@@ -40,14 +108,24 @@ gdelt:
 bluesky:
   enabled: true
 
-# Mastodon: public hashtag timelines on Dutch-speaking servers.
+# Mastodon: public hashtag timelines (paged back to the start of the look-back window, `max_pages` x 40 posts)
+# and the whole local timeline of the Dutch servers in `local_timelines` (`local_pages` x 40 posts).
 mastodon:
-  instances: [mastodon.nl, mastodon.social, social.overheid.nl]
-  hashtags: [tweedekamer, politiek, kabinet, nlpolitiek, verkiezingen, pvv, vvd, d66, glpvda, cda]
+  instances: [mastodon.nl, mastodon.social, social.overheid.nl, toot.community, mastodon.online]
+  local_timelines: [mastodon.nl, toot.community]
+  max_pages: 5
+  local_pages: 25
+  hashtags: [tweedekamer, politiek, kabinet, nlpolitiek, verkiezingen, formatie, prinsjesdag, denhaag,
+             pvv, vvd, d66, glpvda, groenlinks, pvda, cda, pro, ja21, bbb, fvd, sp, christenunie, cu, sgp, denk,
+             pvdd, volt, nsc,
+             jetten, wilders, klaver, yesilgoz, bontenbal, timmermans, baudet, vanderplas, eerdmans,
+             asiel, migratie, stikstof, wonen, woningnood, klimaat, zorg, onderwijs, koopkracht, toeslagenaffaire,
+             defensie, oekraine, gaza]
 
 # Reddit: newest posts in Dutch subreddits + subreddit search per party.
 reddit:
-  subreddits: [thenetherlands, nederlands, Netherlands, NederlandsePolitiek]
+  subreddits: [thenetherlands, nederlands, Netherlands, NederlandsePolitiek, ik_ihe, DutchFIRE, Amsterdam,
+               rotterdam, utrecht, TheHague, groningen, eindhoven, nijmegen, Leiden]
 
 # Telegram: public channels (read from https://t.me/s/<channel>, no account needed).
 # Add the channel names you want to follow (the part after t.me/). A name that does not exist is logged
@@ -58,7 +136,12 @@ telegram:
 
 # YouTube: channel uploads via RSS (titles + descriptions). Use the channel's @handle (looked up on every run)
 # or its channel ID (starts with "UC"). Handles that cannot be found are logged and skipped.
+# Optional: with a free YOUTUBE_API_KEY (YouTube Data API v3) the newest top-level comments on the
+# `comment_videos` newest videos of this run are collected too (`comment_pages` x 100 comments per video,
+# 1 quota unit per page; 10,000 free units a day).
 youtube:
+  comment_videos: 60
+  comment_pages: 1
   channels:
     # public broadcasters and big news brands
     NOS: "@NOS"
@@ -70,6 +153,30 @@ youtube:
     BNNVARA: "UCbd_cIHnI1J_XcLT86NMyvQ"
     Buitenhof: "@buitenhof"
     Op1: "@Op1"
+    WNL: "@omroepwnl"
+    Vandaag Inside: "@VandaagInside"
+    Pointer: "@PointerKRONCRV"
+    Zembla: "@zembla"
+    Hart van Nederland: "@hartvannederland"
+    NU.nl: "@NUnl"
+    AD: "@AD"
+    de Volkskrant: "@volkskrant"
+    EW: "@EWmagazine"
+    BLCKBX: "@blckbxtv"
+    # regional public broadcasters
+    NH Nieuws: "@NHNieuws"
+    Omroep Brabant: "@OmroepBrabant"
+    RTV Utrecht: "@rtvutrecht"
+    Omroep Gelderland: "@OmroepGelderland"
+    RTV Oost: "@RTVOost"
+    RTV Noord: "@RTVNoord"
+    Omroep West: "@omroepwest"
+    Rijnmond: "@RTVRijnmond"
+    L1: "@L1nieuws"
+    Omrop Fryslân: "@omropfryslan"
+    Omroep Zeeland: "@omroepzeeland"
+    RTV Drenthe: "@RTVDrenthe"
+    Omroep Flevoland: "@omroepflevoland"
     # parliament and politics commentary
     Tweede Kamer: "@tweedekamer"
     Politiek Inzicht: "@politiekinzicht1"
@@ -79,6 +186,21 @@ youtube:
     De Nieuwe Wereld: "@DeNieuweWereld"
     De Correspondent: "@decorrespondent"
     Follow the Money: "@FollowTheMoneyNL"
+    # parties
+    PVV: "@PVVpers"
+    VVD: "@VVD"
+    D66: "@D66"
+    GroenLinks-PvdA: "@GroenLinksPvdA"
+    CDA: "@CDAvideo"
+    SP: "@SPnl"
+    FvD: "@fvdemocratie"
+    JA21: "@JA21nl"
+    BBB: "@BoerBurgerBeweging"
+    ChristenUnie: "@ChristenUnie"
+    SGP: "@SGPnl"
+    DENK: "@DENKtv"
+    Partij voor de Dieren: "@PartijvoordeDieren"
+    Volt: "@VoltNederland"
     # topic channels: migration, climate, housing, health, farming, defence
     Vluchtelingenwerk: "@vluchtelingenwerk"
     Greenpeace NL: "@GreenpeaceNederland"
@@ -86,4 +208,49 @@ youtube:
     Vereniging Eigen Huis: "@VerenigingEigenHuis"
     Defensie: "@defensie"
 
-# X / Twitter: optional, see scraper/ (needs your own X login cookies; use at your own risk).
+# X / Twitter, two free routes:
+# 1. x_profiles (below): recent posts of these accounts via X's public embed service. No login, runs in the cloud,
+#    but accounts only (no search) and X may throttle it. Handles that return nothing are logged and skipped.
+# 2. The logged-in search scraper in scraper/, run on your own computer (X blocks it from cloud servers):
+#    see "X on your own computer" in the README and .github/workflows/x_home.yml.
+x_profiles:
+  accounts:
+    # party leaders and prominent politicians
+    - RobJetten
+    - geertwilderspvv
+    - DilanYesilgozVVD
+    - jesseklaver
+    - hbontenbal
+    - JoostEerdmans
+    - thierrybaudet
+    - CarolineVDPlas
+    - MirjamBikker
+    - monakeijzer
+    - janpaternotte
+    - estherouwehand
+    - LaurensDassen
+    - jimmydijk
+    - FransTimmermans
+    # parties
+    - PVV
+    - VVD
+    - D66
+    - cdavandaag
+    - christenunie
+    - SGPnieuws
+    - SPnl
+    - PartijvdDieren
+    - fvdemocratie
+    - JA21
+    - VoltNederland
+    # government, parliament and newsrooms
+    - MinPres
+    - Rijksoverheid
+    - tweedekamer
+    - NOS
+    - nos_politiek
+    - RTLnieuws
+    - nunl
+    - telegraaf
+    - volkskrant
+    - NRC

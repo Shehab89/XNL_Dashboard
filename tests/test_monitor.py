@@ -31,7 +31,8 @@ def tagger():
 @pytest.mark.parametrize("text, parties, issues", [
     ("Wilders wil de asielinstroom beperken", ["PVV"], ["Migratie & asiel"]),
     ("Yeşilgöz en Jetten debatteren over huurprijzen", ["VVD", "D66"], ["Wonen"]),
-    ("De SP en GL-PvdA willen het eigen risico in de zorg afschaffen", ["GL-PvdA", "SP"], ["Zorg"]),
+    ("De SP en GL-PvdA willen het eigen risico in de zorg afschaffen", ["PRO", "SP"], ["Zorg"]),
+    ("Klaver (PRO) verbaasd over oproep van Paternotte", ["D66", "PRO"], []),
     ("Ik denk dat de sp niet goed is en we zorgen ons", [], []),     # lower-case 'sp' / 'zorgen' are not matches
     ("DENK stelt vragen; denk daar maar eens over na", ["DENK"], []),
     ("Een klaver met vier blaadjes", [], []),                           # 'klaver' (clover) is not Klaver
@@ -263,10 +264,99 @@ def test_parse_bluesky_mastodon_gdelt():
     assert gd["source"] == "nu.nl" and gd["published_at"].startswith("2026-09-29T08:15")
 
 
-def test_search_queries_cover_parties_and_issues():
+def _status(i, minutes_ago):
+    return {"id": str(i), "uri": f"https://mastodon.nl/users/a/statuses/{i}", "content": f"post {i}",
+            "created_at": (NOW - timedelta(minutes=minutes_ago)).isoformat(), "account": {"acct": "a"}}
+
+
+def test_mastodon_timeline_pages_back_to_since():
+    pages = {None: [_status(6, 10), _status(5, 20)], "5": [_status(4, 30), _status(3, 300)], "3": [_status(2, 400)]}
+    asked = []
+
+    class FakeHttp:
+        def get(self, url, params=None, **kw):
+            asked.append((url, params))
+            return pages[params.get("max_id")]
+
+    since = NOW - timedelta(hours=2)
+    items = col.mastodon_timeline(FakeHttp(), "mastodon.nl", "/api/v1/timelines/public", since, 5, {"local": "true"})
+    assert [i["text"] for i in items] == ["post 6", "post 5", "post 4"]  # stops at the page reaching past `since`
+    assert asked[0] == ("https://mastodon.nl/api/v1/timelines/public", {"local": "true", "limit": 40})
+    assert asked[1][1]["max_id"] == "5" and len(asked) == 2
+
+
+def test_collect_gdelt_adds_broad_queries(monkeypatch):
+    monkeypatch.setattr(col.time, "sleep", lambda s: None)
+    asked = []
+
+    class FakeHttp:
+        def get(self, url, params=None, **kw):
+            asked.append(params)
+            return {"articles": []}
+
+        def is_down(self, url):
+            return False
+
+        def reset(self, url):
+            pass
+
+    cfg = {"gdelt": {"maxrecords": 250, "extra_queries": ["sourcecountry:netherlands kabinet"]}}
+    col.collect_gdelt(cfg, FakeHttp(), SINCE, [("PVV", ["PVV", "Wilders"]), ("x", ["ab"])])
+    assert [p["query"] for p in asked] == ["(PVV OR Wilders) sourcelang:dutch", "sourcecountry:netherlands kabinet"]
+    assert {p["maxrecords"] for p in asked} == {250}
+
+
+YT_COMMENTS = {"nextPageToken": "p2", "items": [{"snippet": {"totalReplyCount": 2, "topLevelComment": {
+    "id": "Ugx1", "snippet": {"textDisplay": "Wilders heeft gelijk over asiel", "authorDisplayName": "@kiezer",
+                              "likeCount": 7, "publishedAt": "2026-09-29T08:00:00Z"}}}}]}
+
+
+def test_parse_youtube_comments():
+    it = col.parse_youtube_comments(YT_COMMENTS, "NOS", "vid1")[0]
+    assert it["platform"] == "youtube_comment" and it["source"] == "YouTube-reacties: NOS"
+    assert it["url"] == "https://www.youtube.com/watch?v=vid1&lc=Ugx1" and it["author"] == "@kiezer"
+    assert (it["likes"], it["replies"]) == (7, 2) and it["published_at"].startswith("2026-09-29T08:00")
+
+
+def test_collect_youtube_comments_skips_closed_videos_and_stops_on_quota():
+    class Resp:
+        def __init__(self, status, data=None, text=""):
+            self.status_code, self.text, self._data = status, text, data
+
+        def json(self):
+            return self._data
+
+    answers = {("a", None): Resp(200, YT_COMMENTS), ("a", "p2"): Resp(200, {"items": YT_COMMENTS["items"]}),
+               ("b", None): Resp(403, text='{"reason": "commentsDisabled"}'),
+               ("c", None): Resp(403, text='{"reason": "quotaExceeded"}'), ("d", None): Resp(200, YT_COMMENTS)}
+    asked = []
+
+    class FakeHttp:
+        class session:
+            @staticmethod
+            def get(url, params=None, timeout=None):
+                asked.append(params["videoId"])
+                return answers[(params["videoId"], params.get("pageToken"))]
+
+    items = col.collect_youtube_comments(FakeHttp(), "k", [("a", "NOS"), ("b", "NOS"), ("c", "NOS"), ("d", "NOS")],
+                                         pages=3)
+    assert len(items) == 2 and asked == ["a", "a", "b", "c"]  # "d" is never asked once the quota is used up
+
+
+def test_probe_prints_per_source_counts(monkeypatch, capsys):
+    fake = lambda cfg, **k: [make_item("news", "NOS", "a", uid="1"), make_item("news", "NOS", "b", uid="2")]
+    monkeypatch.setattr(col, "COLLECTORS", {"news": fake})
+    monkeypatch.setattr(pipeline, "COLLECTORS", {"news": fake})
+    assert pipeline.probe() == 0
+    out = capsys.readouterr().out
+    assert "== news: 2 items, 0 requests, 0 failed" in out and "2  NOS" in out
+
+
+def test_search_queries_cover_parties_politicians_and_issues():
     entities = load_yaml("entities.yaml")
     queries = dict(col.search_queries(entities))
-    assert "Wilders" in queries["PVV"] and len(queries) == len(entities["parties"]) + len(entities["issues"])
+    assert "Wilders" in queries["PVV"] and queries["Jesse Klaver"] == ["Jesse Klaver"]
+    assert len(queries) == len(entities["parties"]) + len(entities["politicians"]) + len(entities["issues"])
 
 
 def test_youtube_handle_resolution():
@@ -513,3 +603,46 @@ def test_local_store_removes_duplicates(tmp_path):
     assert store.remove_duplicates() == 1
     left = store.load(days=10_000)
     assert set(left["platform"]) == {"news", "google_news"} and len(left) == 3  # short titles are left alone
+
+
+def test_politicians_and_database_spec(tagger):
+    text = "Premier Jetten en Klaver (PRO) botsen; een klaver met vier blaadjes"
+    assert tagger.politicians(text) == ["Rob Jetten", "Jesse Klaver"]
+    entities = load_yaml("entities.yaml")
+    spec = nlp.politician_spec(entities)
+    assert {s["name"] for s in spec} == set(entities["politicians"])
+    assert all(p["party"] in entities["parties"] for p in entities["politicians"].values())
+    ref = pipeline.web_reference(entities)
+    assert sum(p["seats"] or 0 for p in ref["parties"]) == 150
+
+
+def test_reddit_listing_parses_posts_and_comments():
+    from datetime import datetime, timezone
+    from monitor.collectors import parse_reddit_listing
+    now = datetime.now(timezone.utc).timestamp()
+    data = {"data": {"children": [
+        {"kind": "t3", "data": {"name": "t3_a", "title": "Wilders wil nieuwe verkiezingen", "selftext": "Wat vinden jullie?",
+                                "subreddit": "thenetherlands", "permalink": "/r/thenetherlands/comments/a/x/", "author": "u1",
+                                "created_utc": now, "score": 12, "num_comments": 4}},
+        {"kind": "t1", "data": {"name": "t1_b", "body": "De PVV doet dit altijd", "link_title": "Wilders wil nieuwe verkiezingen",
+                                "subreddit": "thenetherlands", "permalink": "/r/thenetherlands/comments/a/x/b/", "author": "u2",
+                                "created_utc": now, "score": 3}},
+        {"kind": "t3", "data": {"name": "t3_old", "title": "oud", "created_utc": 0, "subreddit": "x", "permalink": "/"}}]}}
+    items = parse_reddit_listing(data, datetime.fromtimestamp(now - 3600, timezone.utc))
+    assert [i["source"] for i in items] == ["r/thenetherlands", "r/thenetherlands"]
+    assert "Wat vinden jullie" in items[0]["text"] and items[1]["title"].startswith("Re: Wilders")
+
+
+def test_parse_x_embed():
+    import json
+    data = {"props": {"pageProps": {"timeline": {"entries": [{"content": {"tweet": {
+        "id_str": "123", "full_text": "Het kabinet moet nu ingrijpen op asiel", "created_at": "Thu Oct 01 08:15:00 +0000 2026",
+        "favorite_count": 40, "retweet_count": 5, "quote_count": 1, "reply_count": 9, "lang": "nl",
+        "user": {"screen_name": "geertwilderspvv"}}}}, {"content": {}}]}}}}
+    page = f'<html><script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}</script></html>'
+    items = col.parse_x_embed(page, "geertwilderspvv")
+    assert len(items) == 1
+    it = items[0]
+    assert it["platform"] == "x" and it["source"] == "X: @geertwilderspvv" and it["shares"] == 6
+    assert it["url"] == "https://x.com/geertwilderspvv/status/123" and it["published_at"].startswith("2026-10-01T08:15")
+    assert col.parse_x_embed("<html>blocked</html>", "x") == []

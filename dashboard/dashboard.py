@@ -61,7 +61,8 @@ TONE_ORDER = ["negative", "neutral", "positive"]
 CHANNEL_COLORS = {"News media": "#4a3aa7", "Social media": "#eb6834"}
 PLATFORM_COLORS = {PLATFORM_LABELS[k]: c for k, c in {
     "news": "#2a78d6", "google_news": "#4a3aa7", "gdelt": "#0f8fa8", "bluesky": "#eda100", "mastodon": "#e87ba4",
-    "reddit": "#eb6834", "telegram": "#26a5e4", "youtube": "#b5179e", "x": "#52514e"}.items()}
+    "reddit": "#eb6834", "telegram": "#26a5e4", "youtube": "#b5179e", "youtube_comment": "#7a0f6b",
+    "x": "#52514e"}.items()}
 DIVERGING = [[0, "#a3262a"], [0.25, "#ec8f86"], [0.5, "#f0efec"], [0.75, "#86cfac"], [1, "#127a52"]]
 SEQUENTIAL = [[0, "#eef4fc"], [0.2, "#b7d3f6"], [0.45, "#6da7ec"], [0.7, "#2a78d6"], [1, "#0d366b"]]
 ACCENT = "#2a78d6"

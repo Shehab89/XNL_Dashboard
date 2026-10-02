@@ -20,7 +20,7 @@ NEWS_PLATFORMS = {"news", "google_news", "gdelt"}
 PLATFORM_LABELS = {
     "news": "News sites (RSS)", "google_news": "Google News", "gdelt": "GDELT news",
     "bluesky": "Bluesky", "mastodon": "Mastodon", "reddit": "Reddit", "telegram": "Telegram",
-    "youtube": "YouTube", "x": "X / Twitter",
+    "youtube": "YouTube", "youtube_comment": "YouTube comments", "x": "X / Twitter",
 }
 
 USER_AGENT = ("Mozilla/5.0 (compatible; DutchPoliticalMediaMonitor/2.0; research; "
@@ -147,7 +147,7 @@ class Http:
     def _host(self, url):
         return url.split("/")[2] if "://" in url else url
 
-    def get(self, url, params=None, headers=None, tries=3, as_json=False):
+    def get(self, url, params=None, headers=None, tries=3, as_json=False, timeout=25):
         """Return response text (or parsed JSON), or None when the source is unavailable."""
         import requests
 
@@ -157,7 +157,7 @@ class Http:
         wait = 2
         for attempt in range(tries):
             try:
-                resp = self.session.get(url, params=params, headers=headers, timeout=25)
+                resp = self.session.get(url, params=params, headers=headers, timeout=timeout)
             except requests.RequestException as exc:
                 log.warning("  ! %s unreachable (%s)", url.split("?")[0], type(exc).__name__)
                 break

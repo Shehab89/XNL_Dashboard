@@ -2,7 +2,7 @@ name: Political Media Monitor — collect & analyse
 
 on:
   schedule:
-    - cron: "17 */6 * * *"      # every 6 hours (UTC)
+    - cron: "17 */2 * * *"      # every 2 hours (UTC); feeds without paging (RSS, Telegram) miss less
   workflow_dispatch:
     inputs:
       hours:
@@ -41,6 +41,9 @@ jobs:
       HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}   # backup if the local model cannot load
       BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
       BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
+      REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}           # optional: Reddit API (anonymous Reddit is blocked from GitHub)
+      REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}           # optional: YouTube comments (Data API v3)
       X_AUTH_TOKEN: ${{ secrets.X_AUTH_TOKEN }}
       X_CT0: ${{ secrets.X_CT0 }}
 
@@ -63,14 +66,15 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-${{ env.SENTIMENT_MODEL }}
 
-      # ---- optional: X (only runs when the X_AUTH_TOKEN and X_CT0 secrets exist) ----
+      # ---- optional: X search from the cloud. X shows GitHub's servers a "please wait" wall, so this is off unless the
+      # repository variable X_IN_CLOUD is "true". Use x_home.yml (your own computer) instead. ----
       - name: Setup Node.js (X scraper)
-        if: env.X_AUTH_TOKEN != '' && github.event.inputs.backfill_days == ''
+        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD == 'true' && github.event.inputs.backfill_days == ''
         uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Run X scraper
-        if: env.X_AUTH_TOKEN != '' && github.event.inputs.backfill_days == ''
+        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD == 'true' && github.event.inputs.backfill_days == ''
         continue-on-error: true      # X problems must never block the other sources
         timeout-minutes: 25          # a hung browser must not eat the whole job
         run: |

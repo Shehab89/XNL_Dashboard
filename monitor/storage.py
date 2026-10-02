@@ -89,6 +89,9 @@ class LocalStore:
         self.delete(list(dup))
         return len(dup)
 
+    def publish(self, spec, reference):
+        return 0, 0  # the website snapshot is built in Supabase only
+
     def llm_done_ids(self, ids):
         df = self._read()
         return set(df.loc[df["analysed_by"] == "llm", "id"]) & set(ids)
@@ -139,10 +142,19 @@ class SupabaseStore:
             raise RuntimeError(f"Supabase {method} failed: HTTP {resp.status_code}: {resp.text[:300]}")
         return resp
 
+    def rpc(self, function, args=None):
+        """Call a database function (database/schema.sql)."""
+        return self._request("POST", json=args or {}, url=self.base.rsplit("/", 1)[0] + "/rpc/" + function).json()
+
     def remove_duplicates(self):
-        """Delete repeated headlines/posts with the database function remove_duplicate_items (database/schema.sql)."""
-        url = self.base.rsplit("/", 1)[0] + "/rpc/remove_duplicate_items"
-        return int(self._request("POST", json={}, url=url).json() or 0)
+        """Delete repeated headlines/posts with the database function remove_duplicate_items."""
+        return int(self.rpc("remove_duplicate_items") or 0)
+
+    def publish(self, spec, reference):
+        """Tag stored items with politicians, then rebuild the website's aggregate snapshot (web_snapshot)."""
+        tagged = int(self.rpc("tag_politicians", {"spec": spec}) or 0)
+        size = int(self.rpc("refresh_web_snapshot", {"reference": reference}) or 0)
+        return tagged, size
 
     def upsert(self, items, chunk=100):
         rows = [{k: item.get(k) for k in ITEM_FIELDS} for item in items]

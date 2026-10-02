@@ -1,0 +1,36 @@
+name: Check sources
+
+# Manual test of every source (Actions -> "Check sources" -> Run workflow): what each feed, channel and search
+# returns for the last 24 hours and which URLs fail. Nothing is analysed or stored.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Only these collectors, comma-separated (e.g. news,youtube); empty = all"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}   # optional
+      BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}           # optional
+      BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
+      REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}           # optional: Reddit API (anonymous Reddit is blocked from GitHub)
+      REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Probe the sources
+        env:
+          ONLY: ${{ github.event.inputs.only }}
+        run: python -m monitor.pipeline probe ${ONLY:+--only "$ONLY"}

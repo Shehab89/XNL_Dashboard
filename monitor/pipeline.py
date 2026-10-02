@@ -3,23 +3,26 @@
     python -m monitor.pipeline run                  # collect from all sources, analyse, store
     python -m monitor.pipeline run --only news,bluesky --hours 24
     python -m monitor.pipeline backfill --days 365   # one-off: collect the past year from sources searchable by date
+    python -m monitor.pipeline probe --only news     # test the sources: per-source counts and failed feeds, nothing stored
     python -m monitor.pipeline demo                 # fill the local store with fictional demo data
     python -m monitor.pipeline queries              # print the search queries as JSON (used by the X scraper)
 """
 
 import argparse
+from pathlib import Path
 import json
 import logging
 import re
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from . import llm
-from .collectors import (GOOGLE_NEWS, collect_all, history_gdelt, history_google_news, history_mastodon,
-                         search_queries)
+from .collectors import (COLLECTORS, GOOGLE_NEWS, collect_all, history_gdelt, history_google_news,
+                         history_mastodon, search_queries)
 from .common import NEWS_PLATFORMS, Http, env, load_yaml, log, make_item
-from .nlp import Tagger, analyse
+from .nlp import Tagger, analyse, politician_spec
 from .storage import LocalStore, SupabaseStore, get_store
 
 # When the same article arrives from several news sources, keep the richest one.
@@ -91,6 +94,7 @@ def run(only=None, hours=None, backend=None, retention_days=400, extra_json=None
         log.warning("Duplicate removal skipped: %s", str(exc)[:200])
     if retention_days:
         store.prune(retention_days)
+    publish(store, entities)
 
     empty = [name for name, n in report.items() if n == 0]
     if empty:
@@ -99,6 +103,25 @@ def run(only=None, hours=None, backend=None, retention_days=400, extra_json=None
         log.error("No source returned any data. Check the network connection and config/sources.yaml.")
         return 1
     return 0
+
+
+def web_reference(entities):
+    """Reference facts for the website, straight from config/entities.yaml."""
+    keep = ("color", "full_name", "seats", "leader", "coalition")
+    return {
+        **(entities.get("reference") or {}),
+        "parties": [{"name": n, **{k: p.get(k) for k in keep}} for n, p in entities["parties"].items()],
+        "politicians": [{"name": n, "party": p["party"], "role": p["role"]} for n, p in entities.get("politicians", {}).items()],
+    }
+
+
+def publish(store, entities):
+    """Bring the database's politician tags and the website snapshot up to date. Never fails the run."""
+    try:
+        tagged, size = store.publish(politician_spec(entities), web_reference(entities))
+        log.info("Tagged %d items with politicians; website snapshot rebuilt (%d kB)", tagged, size // 1024)
+    except Exception as exc:  # e.g. the database functions are not installed yet (database/schema.sql)
+        log.warning("Website snapshot skipped: %s", str(exc)[:200])
 
 
 def relabel_backlog(store, entities, limit):
@@ -180,6 +203,41 @@ def backfill(days=365, window_days=7, until=None, sources=("google_news", "gdelt
         log.info("Removed %d duplicate items", store.remove_duplicates())
     except Exception as exc:
         log.warning("Duplicate removal skipped: %s", str(exc)[:200])
+    publish(store, entities)
+    return 0
+
+
+def probe(only=None, hours=24):
+    """Run the collectors without analysis or storage and print what each source returns and which URLs failed."""
+    sources_cfg, entities = load_yaml("sources.yaml"), load_yaml("entities.yaml")
+    http, calls = Http(), []
+    session_get = http.session.get
+
+    def traced(url, *args, **kwargs):  # record every request's answer (the URL without its query parameters)
+        try:
+            resp = session_get(url, *args, **kwargs)
+        except Exception as exc:
+            calls.append((url, type(exc).__name__))
+            raise
+        calls.append((url, resp.status_code))
+        return resp
+
+    http.session.get = traced
+    lines = []
+    for name in COLLECTORS:
+        if only and name not in only:
+            continue
+        start = len(calls)
+        items, _ = collect_all(sources_cfg, entities, only={name}, hours=hours, http=http)
+        failed = [(u, status) for u, status in calls[start:] if status != 200]
+        lines.append(f"\n== {name}: {len(items)} items, {len(calls) - start} requests, {len(failed)} failed")
+        per_source = Counter(i["source"] for i in items).most_common()
+        shown = per_source[:10] if name in ("google_news", "gdelt") else per_source
+        lines += [f"   {n:6d}  {source}" for source, n in shown]
+        if len(shown) < len(per_source):
+            lines.append(f"          (+{len(per_source) - len(shown)} more sources)")
+        lines += [f"   FAILED {status}  {u[:110]}" for u, status in failed]
+    print("\n".join(lines))
     return 0
 
 
@@ -206,8 +264,13 @@ def main(argv=None):
     p_back.add_argument("--days", type=int, default=365)
     p_back.add_argument("--until", help="newest date to collect (YYYY-MM-DD), to resume an interrupted backfill")
     p_back.add_argument("--sources", default="google_news,gdelt,mastodon")
+    p_probe = sub.add_parser("probe", help="test the sources: per-source counts and failed URLs (nothing is stored)")
+    p_probe.add_argument("--only", help="comma-separated collectors, e.g. news,youtube")
+    p_probe.add_argument("--hours", type=int, default=24)
     sub.add_parser("demo", help="write fictional demo data to the local store")
-    sub.add_parser("queries", help="print the search queries as JSON")
+    p_queries = sub.add_parser("queries", help="print the search queries as JSON")
+    p_queries.add_argument("--out", help="write them to this file (UTF-8) instead, e.g. scraper/queries.json")
+    sub.add_parser("publish", help="re-tag politicians and rebuild the website snapshot (no collection)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -217,9 +280,18 @@ def main(argv=None):
     if args.cmd == "backfill":
         until = datetime.strptime(args.until, "%Y-%m-%d").replace(tzinfo=timezone.utc) if args.until else None
         return backfill(args.days, until=until, sources=tuple(args.sources.split(",")))
+    if args.cmd == "probe":
+        return probe(set(args.only.split(",")) if args.only else None, args.hours)
     if args.cmd == "queries":
-        print(json.dumps([{"label": label, "terms": terms}
-                          for label, terms in search_queries(load_yaml("entities.yaml"))], ensure_ascii=False))
+        text = json.dumps([{"label": label, "terms": terms}
+                           for label, terms in search_queries(load_yaml("entities.yaml"))], ensure_ascii=False)
+        if args.out:  # a file, not shell redirection: Windows PowerShell would write UTF-16
+            Path(args.out).write_text(text, encoding="utf-8")
+        else:
+            print(text)
+        return 0
+    if args.cmd == "publish":
+        publish(get_store(), load_yaml("entities.yaml"))
         return 0
     return demo()
 

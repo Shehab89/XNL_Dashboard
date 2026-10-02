@@ -23,11 +23,13 @@ def _recent(iso, since):
 
 
 def search_queries(entities):
-    """One search query per party and per issue: (label, list of terms)."""
+    """One search query per party, per politician (full name) and per issue: (label, list of terms)."""
     queries = []
     for name, spec in entities["parties"].items():
         terms = [name] + [a for a in spec.get("exact", []) + spec.get("words", []) if " " not in a][:2]
         queries.append((name, list(dict.fromkeys(terms))))
+    for name, spec in (entities.get("politicians") or {}).items():
+        queries.append((name, [name]))
     for name, stems in entities["issues"].items():
         terms = [s.rstrip("$") for s in stems if len(s.rstrip("$")) >= 5][:3]
         queries.append((name, terms))
@@ -84,6 +86,10 @@ def collect_google_news(cfg, http, since, queries, **_):
     days = max(1, round((datetime.now(timezone.utc) - since).total_seconds() / 86400))
     all_queries = [terms for _, terms in queries] + [[q] for q in gcfg.get("extra_queries", [])]
     items = []
+    for url in gcfg.get("feeds", []):  # section feeds (e.g. Binnenland) without a search
+        xml = http.get(url)
+        if xml:
+            items += parse_feed(xml, "google_news", "Google News", since)
     for terms in all_queries:
         q = f"{_or(terms)} when:{days}d"
         url = f"https://news.google.com/rss/search?q={quote_plus(q)}&hl=nl&gl=NL&ceid=NL:nl"
@@ -95,6 +101,9 @@ def collect_google_news(cfg, http, since, queries, **_):
 
 # --------------------------------------------------------------------------- GDELT
 
+GDELT = "https://api.gdeltproject.org/api/v2/doc/doc"
+
+
 def parse_gdelt(data):
     items = []
     for a in (data or {}).get("articles", []):
@@ -104,23 +113,34 @@ def parse_gdelt(data):
     return items
 
 
+def _gdelt_expr(terms):
+    """GDELT query for terms in Dutch-language news, or None when no term is long enough for GDELT."""
+    clean = [f'"{t}"' if " " in t else t for t in terms if len(t) >= 3]
+    if not clean:
+        return None
+    return f"({' OR '.join(clean)}) sourcelang:dutch" if len(clean) > 1 else f"{clean[0]} sourcelang:dutch"
+
+
 def collect_gdelt(cfg, http, since, queries, **_):
-    if not (cfg.get("gdelt") or {}).get("enabled", True):
+    gcfg = cfg.get("gdelt") or {}
+    if not gcfg.get("enabled", True):
         return []
     hours = max(1, int((datetime.now(timezone.utc) - since).total_seconds() // 3600))
-    items = []
-    for _label, terms in queries:
-        clean = [f'"{t}"' if " " in t else t for t in terms if len(t) >= 3]
-        if not clean:
-            continue
-        expr = f"({' OR '.join(clean)})" if len(clean) > 1 else clean[0]
-        data = http.get("https://api.gdeltproject.org/api/v2/doc/doc", as_json=True, params={
-            "query": f"{expr} sourcelang:dutch", "mode": "artlist", "format": "json",
-            "maxrecords": cfg.get("max_per_query", 50), "timespan": f"{hours}h", "sort": "datedesc"})
+    all_queries = [q for q in (_gdelt_expr(terms) for _, terms in queries) if q] + gcfg.get("extra_queries", [])
+    items, misses = [], 0
+    for query in all_queries:
+        data = http.get(GDELT, as_json=True, timeout=60, params={
+            "query": query, "mode": "artlist", "format": "json",
+            "maxrecords": gcfg.get("maxrecords", 250), "timespan": f"{hours}h", "sort": "datedesc"})
         items += parse_gdelt(data)
-        if http.is_down("https://api.gdeltproject.org"):
+        # GDELT is slow and answers bursts with a plain-text "please limit requests" page: back off, but keep going
+        # unless it fails many times in a row
+        misses = 0 if data is not None else misses + 1
+        if misses >= 6:
+            log.warning("  ! GDELT failed %d times in a row: stopping for this run", misses)
             break
-        time.sleep(5)  # GDELT asks for at most one request every 5 seconds
+        http.reset(GDELT)
+        time.sleep(5 if data is not None else 15)
     return items
 
 
@@ -179,24 +199,95 @@ def parse_mastodon(statuses, instance):
     return items
 
 
+def mastodon_timeline(http, instance, path, since, max_pages, params=None):
+    """One Mastodon timeline (e.g. /api/v1/timelines/tag/politiek) paged back to `since`, 40 posts per page."""
+    items, max_id = [], None
+    for _ in range(max_pages):
+        data = http.get(f"https://{instance}{path}", as_json=True,
+                        params={**(params or {}), "limit": 40, **({"max_id": max_id} if max_id else {})})
+        if not isinstance(data, list) or not data:
+            break
+        page = parse_mastodon(data, instance)
+        items += [i for i in page if _recent(i["published_at"], since)]
+        max_id = data[-1].get("id")
+        if not _recent(page[-1]["published_at"], since):
+            break
+    return items
+
+
 def collect_mastodon(cfg, http, since, **_):
+    """Hashtag timelines on every instance plus the whole local timeline of Dutch servers, paged back to `since`."""
     mcfg = cfg.get("mastodon") or {}
     items = []
+    for instance in mcfg.get("local_timelines", []):
+        found = mastodon_timeline(http, instance, "/api/v1/timelines/public", since, mcfg.get("local_pages", 25),
+                                  {"local": "true"})
+        log.info("  mastodon %s local timeline: %d posts", instance, len(found))
+        items += found
     for instance in mcfg.get("instances", []):
         for tag in mcfg.get("hashtags", []):
-            data = http.get(f"https://{instance}/api/v1/timelines/tag/{tag}", params={"limit": 40}, as_json=True)
-            if isinstance(data, list):
-                items += [i for i in parse_mastodon(data, instance) if _recent(i["published_at"], since)]
+            if http.is_down(f"https://{instance}"):
+                break
+            items += mastodon_timeline(http, instance, f"/api/v1/timelines/tag/{tag}", since, mcfg.get("max_pages", 5))
     return items
 
 
 # --------------------------------------------------------------------------- Reddit
+
+def parse_reddit_listing(data, since):
+    """Posts and comments from a Reddit JSON listing (oauth.reddit.com)."""
+    items = []
+    for child in ((data or {}).get("data") or {}).get("children", []):
+        d, kind = child.get("data") or {}, child.get("kind")
+        published = datetime.fromtimestamp(d.get("created_utc") or 0, timezone.utc)
+        if published < since:
+            continue
+        title = d.get("title") or (d.get("link_title") and f"Re: {d['link_title']}")
+        text = d.get("selftext") if kind == "t3" else d.get("body")
+        items.append(make_item(
+            "reddit", f"r/{d.get('subreddit')}", f"{d.get('title') or ''}. {text or ''}".strip(". "),
+            url=f"https://www.reddit.com{d.get('permalink', '')}", uid=d.get("name") or d.get("id"), title=title,
+            author=d.get("author"), published_at=published.isoformat(), lang="nl", likes=d.get("score"),
+            replies=d.get("num_comments")))
+    return items
+
+
+def _reddit_token(http):
+    """App-only OAuth token (free Reddit "script" app). Reddit blocks anonymous requests from cloud servers such as
+    GitHub Actions, so without REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET only the RSS fallback is tried."""
+    cid, secret = env("REDDIT_CLIENT_ID"), env("REDDIT_CLIENT_SECRET")
+    if not (cid and secret):
+        return None
+    try:
+        resp = http.session.post("https://www.reddit.com/api/v1/access_token", auth=(cid, secret),
+                                 data={"grant_type": "client_credentials"}, timeout=30)
+        return resp.json().get("access_token") if resp.status_code == 200 else None
+    except Exception:
+        return None
+
 
 def collect_reddit(cfg, http, since, queries, **_):
     subs = (cfg.get("reddit") or {}).get("subreddits", [])
     if not subs:
         return []
     joined = "+".join(subs)
+    token = _reddit_token(http)
+    if token:
+        api, headers, items = "https://oauth.reddit.com", {"Authorization": f"bearer {token}"}, []
+        for path in (f"/r/{joined}/new", f"/r/{joined}/comments"):  # newest posts and newest comments, all subs at once
+            after = None
+            for _ in range(5):
+                data = http.get(api + path, headers=headers, as_json=True, params={"limit": 100, **({"after": after} if after else {})})
+                page = parse_reddit_listing(data, since)
+                items += page
+                after = ((data or {}).get("data") or {}).get("after")
+                if not after or len(page) < 50:
+                    break
+        for _label, terms in queries:
+            items += parse_reddit_listing(http.get(api + f"/r/{joined}/search", headers=headers, as_json=True, params={
+                "q": _or(terms), "restrict_sr": 1, "sort": "new", "t": "week", "limit": 100}), since)
+        return items
+    log.info("  reddit: no REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET; trying RSS (often blocked from cloud servers)")
     items = []
     for sub in subs:
         xml = http.get(f"https://www.reddit.com/r/{sub}/new/.rss", params={"limit": 100})
@@ -271,9 +362,55 @@ def resolve_youtube_channel(http, ref):
     return match.group(1) if match else None
 
 
-def collect_youtube(cfg, http, since, **_):
+YOUTUBE_COMMENTS = "https://www.googleapis.com/youtube/v3/commentThreads"
+
+
+def parse_youtube_comments(data, channel, video_id):
+    """Top-level comments from a YouTube Data API commentThreads.list answer."""
     items = []
-    for name, ref in ((cfg.get("youtube") or {}).get("channels") or {}).items():
+    for thread in (data or {}).get("items", []):
+        comment = thread.get("snippet", {}).get("topLevelComment", {})
+        s = comment.get("snippet", {})
+        items.append(make_item(
+            "youtube_comment", f"YouTube-reacties: {channel}", s.get("textDisplay") or s.get("textOriginal", ""),
+            url=f"https://www.youtube.com/watch?v={video_id}&lc={comment.get('id')}", uid=comment.get("id"),
+            author=s.get("authorDisplayName"), published_at=s.get("publishedAt"), lang="nl",
+            likes=s.get("likeCount"), replies=thread.get("snippet", {}).get("totalReplyCount")))
+    return items
+
+
+def collect_youtube_comments(http, key, videos, pages=1):
+    """Newest top-level comments of (video_id, channel) pairs; 1 API quota unit per request (10,000 free a day)."""
+    items = []
+    for video_id, channel in videos:
+        token = None
+        for _ in range(pages):
+            params = {"part": "snippet", "videoId": video_id, "order": "time", "maxResults": 100,
+                      "textFormat": "plainText", "key": key, **({"pageToken": token} if token else {})}
+            try:  # direct request: comments switched off on one video (403) must not block the others
+                resp = http.session.get(YOUTUBE_COMMENTS, params=params, timeout=25)
+            except Exception as exc:
+                log.warning("  ! YouTube API unreachable (%s)", type(exc).__name__)
+                return items
+            if resp.status_code != 200:
+                video_problem = resp.status_code == 404 or "commentsDisabled" in resp.text
+                if not video_problem:  # bad key, API not enabled or daily quota used up
+                    log.warning("  ! YouTube API refused (HTTP %s): check YOUTUBE_API_KEY and its daily quota",
+                                resp.status_code)
+                    return items
+                break
+            data = resp.json()
+            items += parse_youtube_comments(data, channel, video_id)
+            token = data.get("nextPageToken")
+            if not token:
+                break
+    return items
+
+
+def collect_youtube(cfg, http, since, **_):
+    ycfg = cfg.get("youtube") or {}
+    items, videos = [], []
+    for name, ref in (ycfg.get("channels") or {}).items():
         channel_id = resolve_youtube_channel(http, ref)
         xml = http.get("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id}) if channel_id else None
         if not xml:
@@ -285,10 +422,17 @@ def collect_youtube(cfg, http, since, **_):
                 continue
             found += 1
             stats = e.get("media_statistics") or {}
+            videos.append((published or "", e.get("yt_videoid") or e.get("id", "").rsplit(":", 1)[-1], name))
             items.append(make_item("youtube", f"YouTube: {name}", f"{e.get('title', '')}. {e.get('summary', '')}",
                                    url=e.get("link"), uid=e.get("id"), title=e.get("title"), author=name,
                                    published_at=published, lang="nl", likes=_count(stats.get("views"))))
         log.info("  youtube %s: %d recent videos", name, found)
+    key = env("YOUTUBE_API_KEY")
+    if key and videos:  # optional: viewers' comments on the newest videos (YouTube Data API v3)
+        newest = [(vid, name) for _, vid, name in sorted(videos, reverse=True)[: ycfg.get("comment_videos", 60)]]
+        comments = collect_youtube_comments(http, key, newest, ycfg.get("comment_pages", 1))
+        log.info("  youtube comments: %d on %d videos", len(comments), len(newest))
+        items += comments
     return items
 
 
@@ -322,13 +466,9 @@ def history_gdelt(cfg, http, start, end, queries):
     if start < datetime.now(timezone.utc) - timedelta(days=89):
         return []
     items = []
-    for _label, terms in queries:
-        clean = [f'"{t}"' if " " in t else t for t in terms if len(t) >= 3]
-        if not clean:
-            continue
-        expr = f"({' OR '.join(clean)})" if len(clean) > 1 else clean[0]
+    for query in filter(None, (_gdelt_expr(terms) for _, terms in queries)):
         data = http.get("https://api.gdeltproject.org/api/v2/doc/doc", as_json=True, params={
-            "query": f"{expr} sourcelang:dutch", "mode": "artlist", "format": "json", "maxrecords": 100,
+            "query": query, "mode": "artlist", "format": "json", "maxrecords": 100,
             "startdatetime": f"{start:%Y%m%d%H%M%S}", "enddatetime": f"{end:%Y%m%d%H%M%S}", "sort": "datedesc"})
         items += parse_gdelt(data)
         if http.is_down("https://api.gdeltproject.org"):
@@ -343,21 +483,53 @@ def history_mastodon(cfg, http, since, max_pages=15):
     items = []
     for instance in mcfg.get("instances", []):
         for tag in mcfg.get("hashtags", []):
-            max_id, found = None, 0
-            for _ in range(max_pages):
-                params = {"limit": 40, **({"max_id": max_id} if max_id else {})}
-                data = http.get(f"https://{instance}/api/v1/timelines/tag/{tag}", params=params, as_json=True)
-                if not isinstance(data, list) or not data:
-                    break
-                page = parse_mastodon(data, instance)
-                items += [i for i in page if _recent(i["published_at"], since)]
-                found += len(page)
-                max_id = data[-1].get("id")
-                if not _recent(page[-1]["published_at"], since):
-                    break
+            found = mastodon_timeline(http, instance, f"/api/v1/timelines/tag/{tag}", since, max_pages)
+            items += found
             if http.is_down(f"https://{instance}"):
                 break
-            log.info("  mastodon %s #%s: %d posts", instance, tag, found)
+            log.info("  mastodon %s #%s: %d posts", instance, tag, len(found))
+    return items
+
+
+# --------------------------------------------------------------------------- X (no login)
+# X's embed service (the one behind "embedded timeline" widgets on news sites) serves an account's recent posts
+# without an account or API key. It covers accounts, not search, and X may limit or change it: a profile that returns
+# nothing is logged and skipped. Search-level X data needs the logged-in scraper in scraper/ (see README).
+
+X_EMBED = "https://syndication.twitter.com/srv/timeline-profile/screen-name/"
+
+
+def parse_x_embed(page, handle):
+    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', page or "", re.S)
+    if not m:
+        return []
+    import json
+    entries = (((json.loads(m.group(1)).get("props") or {}).get("pageProps") or {}).get("timeline") or {}).get("entries") or []
+    items = []
+    for e in entries:
+        tw = (e.get("content") or {}).get("tweet") or {}
+        if not tw.get("id_str"):
+            continue
+        user = (tw.get("user") or {}).get("screen_name") or handle
+        published = to_iso(datetime.strptime(tw["created_at"], "%a %b %d %H:%M:%S %z %Y")) if tw.get("created_at") else None
+        items.append(make_item(
+            "x", f"X: @{user}", tw.get("full_text") or tw.get("text") or "", url=f"https://x.com/{user}/status/{tw['id_str']}",
+            uid=f"x:{tw['id_str']}", author=user, published_at=published, lang=tw.get("lang") or "nl",
+            likes=tw.get("favorite_count"), shares=(tw.get("retweet_count") or 0) + (tw.get("quote_count") or 0),
+            replies=tw.get("reply_count")))
+    return items
+
+
+def collect_x_profiles(cfg, http, since, **_):
+    items = []
+    for handle in (cfg.get("x_profiles") or {}).get("accounts", []):
+        page = http.get(X_EMBED + handle, params={"showReplies": "false"}, headers={"Accept": "text/html"})
+        found = [i for i in parse_x_embed(page, handle) if _recent(i["published_at"], since)]
+        log.info("  x @%s: %d recent posts", handle, len(found))
+        items += found
+        if http.is_down(X_EMBED):
+            break
+        time.sleep(2)  # be gentle: X throttles bursts
     return items
 
 
@@ -370,12 +542,13 @@ COLLECTORS = {
     "reddit": collect_reddit,
     "telegram": collect_telegram,
     "youtube": collect_youtube,
+    "x_profiles": collect_x_profiles,
 }
 
 
-def collect_all(sources_cfg, entities, only=None, hours=None):
+def collect_all(sources_cfg, entities, only=None, hours=None, http=None):
     """Run every collector (or only the named ones) and return all items plus a per-source count."""
-    http = Http()
+    http = http or Http()
     since = _since(hours or sources_cfg.get("lookback_hours", 48))
     queries = search_queries(entities)
     items, report = [], {}
