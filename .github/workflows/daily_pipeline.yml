@@ -58,7 +58,7 @@ jobs:
       - name: Install Python dependencies (CPU-only torch keeps it small)
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt -r requirements-model.txt
+          pip install -r requirements.txt -r requirements-model.txt -r requirements-collect.txt
 
       - name: Cache the sentiment model
         uses: actions/cache@v6
@@ -82,7 +82,7 @@ jobs:
           python -m monitor.pipeline queries > scraper/queries.json
           cd scraper
           npm ci
-          npx playwright install chromium --with-deps
+          npx patchright install chromium --with-deps
           npm run build
           X_HEADFUL=1 xvfb-run --auto-servernum --server-args="-screen 0 1280x900x24" npm start
 

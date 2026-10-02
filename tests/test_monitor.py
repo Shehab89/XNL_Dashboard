@@ -361,19 +361,21 @@ def test_search_queries_cover_parties_politicians_and_issues():
 
 def test_youtube_handle_resolution():
     class Resp:
-        def __init__(self, url):
-            self.status_code = 200 if "@Nieuwsuur" in url else 404
-            self.text = '<script>{"channelId":"UCExcZNwh_3Mwm4fF4VSiu2w"}</script>' if self.status_code == 200 else ""
+        def __init__(self, url, params):
+            hit = "@Nieuwsuur" in url or (params or {}).get("search_query") == "Zembla"
+            self.status_code = 200 if hit else 404
+            self.text = '<script>{"channelId":"UCExcZNwh_3Mwm4fF4VSiu2w"}</script>' if hit else ""
 
     class FakeHttp:
         class session:
             @staticmethod
-            def get(url, timeout=None):
-                return Resp(url)
+            def get(url, params=None, timeout=None):
+                return Resp(url, params)
 
     assert col.resolve_youtube_channel(FakeHttp(), "UCExcZNwh_3Mwm4fF4VSiu2w") == "UCExcZNwh_3Mwm4fF4VSiu2w"
     assert col.resolve_youtube_channel(FakeHttp(), "@Nieuwsuur") == "UCExcZNwh_3Mwm4fF4VSiu2w"
     assert col.resolve_youtube_channel(FakeHttp(), "@bestaatniet") is None
+    assert col.resolve_youtube_channel(FakeHttp(), "@zembla", "Zembla") == "UCExcZNwh_3Mwm4fF4VSiu2w"  # found by search
 
 
 def test_collect_all_survives_broken_source(monkeypatch):
@@ -646,3 +648,60 @@ def test_parse_x_embed():
     assert it["platform"] == "x" and it["source"] == "X: @geertwilderspvv" and it["shares"] == 6
     assert it["url"] == "https://x.com/geertwilderspvv/status/123" and it["published_at"].startswith("2026-10-01T08:15")
     assert col.parse_x_embed("<html>blocked</html>", "x") == []
+
+
+X_CLI = {"ok": True, "schema_version": "1", "data": [
+    {"id": "1840000000000000001", "text": "Debat over de begroting", "lang": "nl",
+     "author": {"id": "9", "name": "Rob Jetten", "screenName": "RobJetten"},
+     "metrics": {"likes": 120, "retweets": 14, "replies": 9},
+     "createdAt": "Thu Oct 02 10:00:00 +0000 2026", "createdAtISO": "2026-10-02T10:00:00+00:00"},
+    {"id": "2", "text": "no author", "author": {}},
+]}
+
+
+def test_parse_x_cli():
+    items = col.parse_x_cli(X_CLI)
+    assert len(items) == 1
+    x = items[0]
+    assert x["platform"] == "x" and x["author"] == "RobJetten"
+    assert x["url"] == "https://x.com/RobJetten/status/1840000000000000001"
+    assert (x["likes"], x["shares"], x["replies"]) == (120, 14, 9)
+    assert col.parse_x_cli(None) == [] and len(col.parse_x_cli(X_CLI["data"])) == 1
+
+
+def test_x_search_runs_twitter_cli(monkeypatch):
+    import json as _json, subprocess as _sp
+    calls = []
+    monkeypatch.setenv("X_AUTH_TOKEN", "a"); monkeypatch.setenv("X_CT0", "b")
+    monkeypatch.setattr(col.shutil, "which", lambda _: "/usr/bin/twitter")
+    monkeypatch.setattr(col.time, "sleep", lambda _: None)
+    def run(cmd, env, **_):
+        calls.append((cmd, env["TWITTER_AUTH_TOKEN"]))
+        return _sp.CompletedProcess(cmd, 0, _json.dumps(X_CLI), "")
+    monkeypatch.setattr(col.subprocess, "run", run)
+    since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    items = col.collect_x_search({}, None, since, [("D66", ["D66", "Jetten"])])
+    assert len(items) == 1 and calls[0][1] == "a"
+    assert calls[0][0][:3] == ["twitter", "search", "D66 OR Jetten"] and "latest" in calls[0][0]
+
+
+def test_http_retries_refused_requests_like_chrome(monkeypatch):
+    import types
+    from monitor.common import Http
+
+    class Resp:
+        status_code, headers, text = 403, {}, "blocked"
+
+    class Fake:
+        calls = []
+
+        @staticmethod
+        def get(url, **kw):
+            Fake.calls.append(kw)
+            return types.SimpleNamespace(status=200, body=b'{"ok": 1}', encoding="utf-8")
+
+    monkeypatch.setitem(sys.modules, "scrapling.fetchers", types.SimpleNamespace(Fetcher=Fake))
+    http = Http(pause=0)
+    monkeypatch.setattr(http.session, "get", lambda *a, **k: Resp())
+    assert http.get("https://site.nl/feed", as_json=True) == {"ok": 1}
+    assert Fake.calls[0]["impersonate"] == "chrome" and not http.is_down("https://site.nl/x")

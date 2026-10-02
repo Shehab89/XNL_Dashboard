@@ -12,7 +12,7 @@
  *   cd scraper && npm run build && npm start          # -> scraper/x_items.json
  *   python -m monitor.pipeline run --extra-json scraper/x_items.json
  */
-import { chromium, Page } from "playwright";
+import { chromium, Page } from "patchright"; // Playwright with stealth patches
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
@@ -105,16 +105,14 @@ async function main() {
     return;
   }
   const queries: Query[] = JSON.parse(fs.readFileSync(QUERIES, "utf-8"));
-  const browser = await chromium.launch({
-    headless: !HEADFUL,
-    args: ["--disable-blink-features=AutomationControlled", "--lang=nl-NL"],
-  });
+  // patchright hides the automation traces itself; it is least detectable with installed Google Chrome, a real
+  // window and the browser's own user agent and window size. Falls back to the bundled Chromium.
+  const launch = (channel?: string) => chromium.launch({ headless: !HEADFUL, channel, args: ["--lang=nl-NL"] });
+  const browser = await launch(process.env.X_BROWSER_CHANNEL || "chrome").catch(() => launch());
   const context = await browser.newContext({
-    locale: "nl-NL", timezoneId: "Europe/Amsterdam", viewport: { width: 1280, height: 900 },
-    ...(HEADFUL ? {} : { userAgent: USER_AGENT }), // a real window sends its own, consistent user agent
+    locale: "nl-NL", timezoneId: "Europe/Amsterdam",
+    ...(HEADFUL ? { viewport: null } : { userAgent: USER_AGENT, viewport: { width: 1280, height: 900 } }),
   });
-  // Automation flag that sites read to spot scripted browsers.
-  await context.addInitScript(() => Object.defineProperty(navigator, "webdriver", { get: () => undefined }));
   await context.addCookies([
     { name: "auth_token", value: X_AUTH_TOKEN, domain: ".x.com", path: "/", secure: true, httpOnly: true },
     { name: "ct0", value: X_CT0, domain: ".x.com", path: "/", secure: true },

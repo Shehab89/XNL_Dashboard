@@ -3,7 +3,12 @@
 A failing source never stops the run: it logs a warning and returns what it has.
 """
 
+import json
+import os
+import random
 import re
+import shutil
+import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus
@@ -346,17 +351,25 @@ def collect_telegram(cfg, http, since, **_):
 _CHANNEL_ID = re.compile(r'(?:"channelId":"|"externalId":"|channel_id=|/channel/)(UC[\w-]{22})')
 
 
-def resolve_youtube_channel(http, ref):
-    """A channel ID (UC...) as is; an @handle is looked up on the channel page. None when it cannot be found."""
+def _youtube_page(http, url, params=None):
+    try:  # direct request: a wrong handle (404) must not make Http skip the YouTube feeds
+        resp = http.session.get(url, params=params, timeout=25)
+        return resp.text if resp.status_code == 200 else ""
+    except Exception:
+        return ""
+
+
+def resolve_youtube_channel(http, ref, name=None):
+    """A channel ID (UC...) as is; an @handle is looked up on the channel page. When the handle does not exist,
+    the first channel YouTube's search finds for `name` is used. None when neither works."""
     if re.fullmatch(r"UC[\w-]{22}", ref):
         return ref
-    url = f"https://www.youtube.com/{ref if ref.startswith('@') else '@' + ref}"
-    try:  # direct request: a wrong handle (404) must not make Http skip the YouTube feeds
-        resp = http.session.get(url, timeout=25)
-        page = resp.text if resp.status_code == 200 else ""
-    except Exception:
-        page = ""
-    match = _CHANNEL_ID.search(page)
+    match = _CHANNEL_ID.search(_youtube_page(http, f"https://www.youtube.com/{ref if ref.startswith('@') else '@' + ref}"))
+    if not match and name:  # sp=EgIQAg== limits the search to channels
+        match = _CHANNEL_ID.search(_youtube_page(http, "https://www.youtube.com/results",
+                                                 {"search_query": name, "sp": "EgIQAg=="}))
+        if match:
+            log.info("YouTube %s not found: using channel %s from a search for \"%s\"", ref, match.group(1), name)
     if not match:
         log.warning("YouTube channel %s not found (check the handle in config/sources.yaml)", ref)
     return match.group(1) if match else None
@@ -411,7 +424,7 @@ def collect_youtube(cfg, http, since, **_):
     ycfg = cfg.get("youtube") or {}
     items, videos = [], []
     for name, ref in (ycfg.get("channels") or {}).items():
-        channel_id = resolve_youtube_channel(http, ref)
+        channel_id = resolve_youtube_channel(http, ref, name)
         xml = http.get("https://www.youtube.com/feeds/videos.xml", params={"channel_id": channel_id}) if channel_id else None
         if not xml:
             continue
@@ -503,7 +516,6 @@ def parse_x_embed(page, handle):
     m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', page or "", re.S)
     if not m:
         return []
-    import json
     entries = (((json.loads(m.group(1)).get("props") or {}).get("pageProps") or {}).get("timeline") or {}).get("entries") or []
     items = []
     for e in entries:
@@ -533,6 +545,59 @@ def collect_x_profiles(cfg, http, since, **_):
     return items
 
 
+def parse_x_cli(payload):
+    """Posts from twitter-cli's JSON output ({"ok": true, "data": [...]} or a bare list)."""
+    rows = payload.get("data") if isinstance(payload, dict) else payload
+    items = []
+    for t in rows or []:
+        handle = (t.get("author") or {}).get("screenName") or ""
+        if not t.get("id") or not handle or t.get("isRetweet"):
+            continue
+        m = t.get("metrics") or {}
+        items.append(make_item(
+            "x", "X", t.get("text", ""), url=f"https://x.com/{handle}/status/{t['id']}", uid=str(t["id"]),
+            author=handle, published_at=t.get("createdAtISO") or t.get("createdAt"), lang=t.get("lang") or "nl",
+            likes=m.get("likes"), shares=m.get("retweets"), replies=m.get("replies")))
+    return items
+
+
+def collect_x_search(cfg, http, since, queries, **_):
+    """X "Latest" search through twitter-cli (X's own web API with your login cookies, no browser).
+
+    Needs X_AUTH_TOKEN and X_CT0 and the `twitter` command (pip install twitter-cli). Against X's terms, so
+    use a secondary account. Stops after three empty searches in a row (expired cookies, rate limit)."""
+    conf = cfg.get("x_search") or {}
+    token, ct0 = env("X_AUTH_TOKEN"), env("X_CT0")
+    if not conf.get("enabled", True) or not (token and ct0):
+        return []
+    if not shutil.which("twitter"):
+        log.warning("  ! twitter-cli is not installed: pip install twitter-cli")
+        return []
+    run_env = {**os.environ, "TWITTER_AUTH_TOKEN": token, "TWITTER_CT0": ct0}
+    deadline = time.time() + 60 * conf.get("max_minutes", 20)
+    items, misses = [], 0
+    for label, terms in random.sample(queries, len(queries)):
+        if time.time() > deadline or misses >= 3:
+            log.info("  x search: stopping (%s)", "3 empty searches in a row" if misses >= 3 else "time budget used")
+            break
+        cmd = ["twitter", "search", _or(terms), "-t", "latest", "--lang", "nl",
+               "--since", since.strftime("%Y-%m-%d"), "-n", str(conf.get("per_query", 60)), "--json"]
+        found = []
+        try:
+            out = subprocess.run(cmd, env=run_env, capture_output=True, text=True, timeout=120)
+            if out.returncode:
+                log.info("  x %s: failed: %s", label, ((out.stderr or out.stdout).strip().splitlines() or ["?"])[-1][:200])
+            else:
+                found = [i for i in parse_x_cli(json.loads(out.stdout or "null")) if _recent(i["published_at"], since)]
+        except (subprocess.TimeoutExpired, ValueError) as exc:
+            log.info("  x %s: %s", label, type(exc).__name__)
+        misses = 0 if found else misses + 1
+        log.info("  x %s: %d posts", label, len(found))
+        items += found
+        time.sleep(random.uniform(3, 7))  # human pace; X throttles bursts
+    return items
+
+
 COLLECTORS = {
     "news": collect_news_feeds,
     "google_news": collect_google_news,
@@ -543,6 +608,7 @@ COLLECTORS = {
     "telegram": collect_telegram,
     "youtube": collect_youtube,
     "x_profiles": collect_x_profiles,
+    "x_search": collect_x_search,
 }
 
 

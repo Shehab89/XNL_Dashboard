@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "dotenv": "^16.4.0",
-    "playwright": "^1.47.0"
+    "patchright": "^1.63.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

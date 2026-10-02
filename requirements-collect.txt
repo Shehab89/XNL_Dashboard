@@ -1,0 +1,3 @@
+# Extra collection tools for the pipeline only (not needed by the dashboard)
+twitter-cli==0.8.5            # X search through X's own web API with your login cookies
+scrapling[fetchers]==0.4.15   # Chrome-like retry for sites that refuse plain requests; brings patchright

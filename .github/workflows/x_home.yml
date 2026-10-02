@@ -44,13 +44,13 @@ jobs:
         with:
           node-version: "22"
       - name: Install Python packages
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt -r requirements-collect.txt
       - name: Install the X scraper
         working-directory: scraper
         run: npm ci
       - name: Install its browser
         working-directory: scraper
-        run: npx playwright install chromium
+        run: npx patchright install chromium
       - name: Build the X scraper
         working-directory: scraper
         run: npm run build
@@ -60,4 +60,4 @@ jobs:
         working-directory: scraper
         run: npm start
       - name: Analyse and store (X posts only)
-        run: python -m monitor.pipeline run --only none --extra-json scraper/x_items.json --require-db
+        run: python -m monitor.pipeline run --only x_search --extra-json scraper/x_items.json --require-db

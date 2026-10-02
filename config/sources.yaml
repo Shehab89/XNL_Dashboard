@@ -213,6 +213,13 @@ youtube:
 #    but accounts only (no search) and X may throttle it. Handles that return nothing are logged and skipped.
 # 2. The logged-in search scraper in scraper/, run on your own computer (X blocks it from cloud servers):
 #    see "X on your own computer" in the README and .github/workflows/x_home.yml.
+# X search ("Latest" tab) through twitter-cli: X's own web API with the X_AUTH_TOKEN / X_CT0 login cookies, no
+# browser. One search per party, politician and topic; stops after 3 empty searches in a row.
+x_search:
+  enabled: true
+  per_query: 60
+  max_minutes: 20
+
 x_profiles:
   accounts:
     # party leaders and prominent politicians
