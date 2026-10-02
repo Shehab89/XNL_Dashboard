@@ -1,78 +1,193 @@
-# What the monitor looks for in every post and article.
+# What the monitor looks for in every post and article, plus the reference facts the website shows.
 #
-# parties:  name -> colour + aliases. An item "mentions" a party when any alias appears.
+# parties:  name -> colour, aliases and facts. An item "mentions" a party when any alias appears.
 #           Aliases in `exact` are matched case-sensitively as whole words: use it for acronyms
 #           and for names that are also normal Dutch words ("DENK", "Klaver", "Dassen", "Volt").
 #           Aliases in `words` are matched case-insensitively as whole words / phrases.
-#           Keep leaders up to date after elections or leadership changes.
+#           full_name / seats / leader / coalition are shown on the website; keep them current
+#           (source: tweedekamer.nl > Fracties). seats are current fractie sizes, not the election result.
+# politicians: name -> party, role and aliases (case-sensitive whole words; use the full name when the
+#           surname alone is ambiguous). The database tags every item with the politicians it mentions;
+#           changing an alias here re-tags all stored items on the next run.
 # issues:   name -> keyword stems. A stem matches at the start of a word
 #           ("asiel" matches "asielzoekers"); add "$" to require the whole word ("zorg$").
 
+reference:
+  as_of: "2026-10-02"
+  seats_source: "Tweede Kamer, Fracties (tweedekamer.nl/kamerleden_en_commissies/fracties)"
+  cabinet: "Kabinet-Jetten (D66, VVD, CDA), minderheidskabinet met 66 zetels, beëdigd 23 februari 2026"
+  cabinet_source: "Parlement.com, Kabinetsformatie 2025-2026; NOS, 2026"
+
 parties:
-  PVV:
-    color: "#1d3557"
-    exact: [PVV]
-    words: [Wilders, Partij voor de Vrijheid]
-  VVD:
-    color: "#f77f00"
-    exact: [VVD]
-    words: [Yeşilgöz, Yesilgoz, Dilan Yeşilgöz]
   D66:
     color: "#2bb24c"
+    full_name: Democraten 66
+    seats: 26
+    leader: Jan Paternotte
+    coalition: true
     exact: [D66]
-    words: [Jetten, Rob Jetten]
-  GL-PvdA:
+    words: [Jetten, Rob Jetten, Paternotte]
+  VVD:
+    color: "#f77f00"
+    full_name: Volkspartij voor Vrijheid en Democratie
+    seats: 22
+    leader: Ruben Brekelmans
+    coalition: true
+    exact: [VVD]
+    words: [Yeşilgöz, Yesilgoz, Dilan Yeşilgöz, Brekelmans]
+  PRO:
     color: "#d62828"
-    exact: [GL-PvdA, GLPvdA, PvdA, Klaver]
-    words: [GroenLinks, Partij van de Arbeid, Jesse Klaver, Timmermans]
+    full_name: Progressief Nederland (voorheen GroenLinks-PvdA)
+    seats: 20
+    leader: Jesse Klaver
+    coalition: false
+    exact: [PRO, GL-PvdA, GLPvdA, PvdA, Klaver]
+    words: [Progressief Nederland, GroenLinks, Partij van de Arbeid, Jesse Klaver, Timmermans]
+  PVV:
+    color: "#1d3557"
+    full_name: Partij voor de Vrijheid
+    seats: 19
+    leader: Geert Wilders
+    coalition: false
+    exact: [PVV]
+    words: [Wilders, Partij voor de Vrijheid]
   CDA:
     color: "#0b8457"
+    full_name: Christen-Democratisch Appèl
+    seats: 18
+    leader: Henri Bontenbal
+    coalition: true
     exact: [CDA]
     words: [Bontenbal, Henri Bontenbal]
   JA21:
     color: "#3a0ca3"
+    full_name: JA21
+    seats: 9
+    leader: Joost Eerdmans
+    coalition: false
     exact: [JA21]
     words: [Eerdmans, Joost Eerdmans]
   FvD:
     color: "#8d0801"
+    full_name: Forum voor Democratie
+    seats: 7
+    leader: Ralf Dekker
+    coalition: false
     exact: [FvD, FVD]
-    words: [Forum voor Democratie, Baudet, Thierry Baudet]
-  SP:
-    color: "#ff006e"
-    exact: [SP]
-    words: [Socialistische Partij, Jimmy Dijk]
+    words: [Forum voor Democratie, Baudet, Thierry Baudet, Ralf Dekker]
+  Groep Markuszower:
+    color: "#4a5a78"
+    full_name: Groep Markuszower (afgesplitst van de PVV)
+    seats: 7
+    leader: Gidi Markuszower
+    coalition: false
+    exact: [Markuszower]
+    words: [Groep Markuszower, Gidi Markuszower]
   BBB:
     color: "#9acd32"
+    full_name: BoerBurgerBeweging
+    seats: 3
+    leader: Henk Vermeer
+    coalition: false
     exact: [BBB]
-    words: [BoerBurgerBeweging, Van der Plas, Caroline van der Plas]
-  NSC:
-    color: "#264653"
-    exact: [NSC]
-    words: [Nieuw Sociaal Contract, Omtzigt]
-  PvdD:
-    color: "#2d6a4f"
-    exact: [PvdD]
-    words: [Partij voor de Dieren, Ouwehand]
+    words: [BoerBurgerBeweging, Caroline van der Plas, Henk Vermeer]
   ChristenUnie:
     color: "#00a6fb"
+    full_name: ChristenUnie
+    seats: 3
+    leader: Mirjam Bikker
+    coalition: false
     exact: [CU]
     words: [ChristenUnie, Bikker, Mirjam Bikker]
-  SGP:
-    color: "#e76f51"
-    exact: [SGP, Stoffer]
-    words: [Staatkundig Gereformeerde Partij]
   DENK:
     color: "#00b4d8"
+    full_name: DENK
+    seats: 3
+    leader: Stephan van Baarle
+    coalition: false
     exact: [DENK]
     words: [Van Baarle]
-  Volt:
-    color: "#7b2cbf"
-    exact: [Volt, Dassen]
-    words: [Laurens Dassen]
+  PvdD:
+    color: "#2d6a4f"
+    full_name: Partij voor de Dieren
+    seats: 3
+    leader: Christine Teunissen
+    coalition: false
+    exact: [PvdD]
+    words: [Partij voor de Dieren, Ouwehand, Christine Teunissen]
+  SGP:
+    color: "#e76f51"
+    full_name: Staatkundig Gereformeerde Partij
+    seats: 3
+    leader: Chris Stoffer
+    coalition: false
+    exact: [SGP, Stoffer]
+    words: [Staatkundig Gereformeerde Partij]
+  SP:
+    color: "#ff006e"
+    full_name: Socialistische Partij
+    seats: 3
+    leader: Jimmy Dijk
+    coalition: false
+    exact: [SP]
+    words: [Socialistische Partij, Jimmy Dijk]
   50PLUS:
     color: "#b5179e"
+    full_name: 50PLUS
+    seats: 2
+    leader: Jan Struijs
+    coalition: false
     exact: [50PLUS, 50Plus]
-    words: []
+    words: [Jan Struijs]
+  Volt:
+    color: "#7b2cbf"
+    full_name: Volt Nederland
+    seats: 1
+    leader: Laurens Dassen
+    coalition: false
+    exact: [Volt, Dassen]
+    words: [Laurens Dassen]
+  Lid Keijzer:
+    color: "#7a6a4f"
+    full_name: Lid Keijzer (afgesplitst van BBB)
+    seats: 1
+    leader: Mona Keijzer
+    coalition: false
+    exact: []
+    words: [Mona Keijzer]
+  NSC:
+    color: "#264653"
+    full_name: Nieuw Sociaal Contract
+    seats: 0
+    coalition: false
+    exact: [NSC]
+    words: [Nieuw Sociaal Contract, Omtzigt]
+
+politicians:
+  Rob Jetten:            {party: D66, role: "Minister-president (kabinet-Jetten)", aliases: [Rob Jetten, Jetten]}
+  Jan Paternotte:        {party: D66, role: Fractievoorzitter, aliases: [Jan Paternotte, Paternotte]}
+  Dilan Yeşilgöz:        {party: VVD, role: "Vicepremier en minister van Defensie", aliases: [Dilan Yeşilgöz, Yeşilgöz, Yesilgoz, Yeşilgöz-Zegerius]}
+  Ruben Brekelmans:      {party: VVD, role: Fractievoorzitter, aliases: [Ruben Brekelmans, Brekelmans]}
+  Jesse Klaver:          {party: PRO, role: "Fractievoorzitter en partijleider", aliases: [Jesse Klaver, Klaver]}
+  Frans Timmermans:      {party: PRO, role: "Lijsttrekker GL-PvdA in 2025; niet langer partijleider", aliases: [Frans Timmermans, Timmermans]}
+  Geert Wilders:         {party: PVV, role: Fractievoorzitter, aliases: [Geert Wilders, Wilders]}
+  Henri Bontenbal:       {party: CDA, role: Fractievoorzitter, aliases: [Henri Bontenbal, Bontenbal]}
+  Bart van den Brink:    {party: CDA, role: "Vicepremier en minister van Asiel en Migratie", aliases: [Bart van den Brink]}
+  Joost Eerdmans:        {party: JA21, role: Fractievoorzitter, aliases: [Joost Eerdmans, Eerdmans]}
+  Thierry Baudet:        {party: FvD, role: "Lijsttrekker FvD in 2025", aliases: [Thierry Baudet, Baudet]}
+  Ralf Dekker:           {party: FvD, role: Fractievoorzitter, aliases: [Ralf Dekker]}
+  Gidi Markuszower:      {party: Groep Markuszower, role: Fractievoorzitter, aliases: [Gidi Markuszower, Markuszower]}
+  Caroline van der Plas: {party: BBB, role: "Lijsttrekker BBB in 2025", aliases: [Caroline van der Plas]}
+  Henk Vermeer:          {party: BBB, role: Fractievoorzitter, aliases: [Henk Vermeer]}
+  Mona Keijzer:          {party: Lid Keijzer, role: "Kamerlid (eenmansfractie)", aliases: [Mona Keijzer, Keijzer]}
+  Mirjam Bikker:         {party: ChristenUnie, role: Fractievoorzitter, aliases: [Mirjam Bikker, Bikker]}
+  Stephan van Baarle:    {party: DENK, role: Fractievoorzitter, aliases: [Stephan van Baarle, Van Baarle, van Baarle]}
+  Christine Teunissen:   {party: PvdD, role: Fractievoorzitter, aliases: [Christine Teunissen]}
+  Esther Ouwehand:       {party: PvdD, role: "Lijsttrekker PvdD in 2025", aliases: [Esther Ouwehand, Ouwehand]}
+  Chris Stoffer:         {party: SGP, role: Fractievoorzitter, aliases: [Chris Stoffer, Stoffer]}
+  Jimmy Dijk:            {party: SP, role: Fractievoorzitter, aliases: [Jimmy Dijk]}
+  Jan Struijs:           {party: 50PLUS, role: Fractievoorzitter, aliases: [Jan Struijs, Struijs]}
+  Laurens Dassen:        {party: Volt, role: Fractievoorzitter, aliases: [Laurens Dassen, Dassen]}
 
 issues:
   Migratie & asiel:

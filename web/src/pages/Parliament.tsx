@@ -3,14 +3,20 @@ import { Link } from "react-router-dom";
 import { Hemicycle } from "../components/charts/Hemicycle";
 import { ParliamentPanel } from "../components/ParliamentPanel";
 import { Breadcrumbs, LayerTag, SectionHead, Source } from "../components/ui";
-import { ELECTION_2025, GLOSSARY, MAJORITY, PARTIES, TOTAL_SEATS, politicianById } from "../data/reference";
+import { WithData } from "../components/WithData";
+import { GLOSSARY, MAJORITY, PARTIES, REF, TOTAL_SEATS, politicianById } from "../data/reference";
 import { useLang } from "../hooks/useLang";
 import { useTitle } from "../hooks/useTitle";
 import { slug } from "../utils/format";
 
 export default function Parliament() {
-  const { lang, t } = useLang();
+  const { t } = useLang();
   useTitle(t("Parlement", "Parliament"));
+  return <WithData>{() => <ParliamentView />}</WithData>;
+}
+
+function ParliamentView() {
+  const { lang, t } = useLang();
   const [selected, setSelected] = useState<string | null>(null);
   const [pick, setPick] = useState<Set<string>>(new Set());
   const seated = PARTIES.filter((p) => (p.seats ?? 0) > 0);
@@ -28,18 +34,18 @@ export default function Parliament() {
       <section className="section grid-12" style={{ borderTop: 0 }}>
         <div className="span-8">
           <div className="split" style={{ marginBottom: 6 }}>
-            <span className="kicker">{t("Zetelverdeling na de verkiezing van 29 oktober 2025", "Seats after the election of 29 October 2025")}</span>
+            <span className="kicker">{t("Huidige zetelverdeling per fractie", "Current seats per group")}</span>
             <LayerTag layer="fact" />
           </div>
           <Hemicycle parties={PARTIES} selected={selected} onSelect={setSelected} />
-          <Source sources={[ELECTION_2025]} method={t("Partijen geordend naar zetelaantal, niet op een links-rechtsas. Beweeg over of tab naar een partij voor details.",
-            "Parties ordered by seats, not on a left-right axis. Hover or tab to a party for details.")} />
+          <Source sources={[REF.seatsSource, REF.cabinetSource]} method={t("Geordend naar zetels, niet op een links-rechtsas.", "Ordered by seats, not on a left-right axis.")} />
         </div>
         <div className="span-4">
           <div className="panel">
             <div className="panel-head"><h2>{t("Rekenhulp: meerderheid", "Majority calculator")}</h2><LayerTag layer="data" /></div>
-            <p className="small">{t("Kies partijen en zie of ze samen 76 zetels halen. Een rekensom, geen voorspelling of advies.",
-              "Pick parties and see whether they reach 76 seats together. Arithmetic, not a prediction or advice.")}</p>
+            <button type="button" className="btn" style={{ marginBottom: 10 }} onClick={() => setPick(new Set(seated.filter((p) => p.coalition).map((p) => p.id)))}>
+              {t("Kabinet-Jetten", "Jetten cabinet")}
+            </button>
             <div className="row" style={{ gap: 6 }} role="group" aria-label={t("Partijen kiezen", "Pick parties")}>
               {seated.map((p) => (
                 <button key={p.id} type="button" className="chip" aria-pressed={pick.has(p.id)} onClick={() => toggle(p.id)}>
@@ -72,21 +78,21 @@ export default function Parliament() {
         <div className="table-scroll">
           <table className="table">
             <caption className="sr-only">{t("Zetels per partij", "Seats per party")}</caption>
-            <thead><tr><th scope="col">{t("Partij", "Party")}</th><th scope="col" className="num">{t("Zetels", "Seats")}</th><th scope="col" className="num">%</th><th scope="col">{t("Lijsttrekker 2025", "Lead candidate 2025")}</th><th scope="col">{t("Positie", "Position")}</th></tr></thead>
+            <thead><tr><th scope="col">{t("Partij", "Party")}</th><th scope="col" className="num">{t("Zetels", "Seats")}</th><th scope="col" className="num">%</th><th scope="col">{t("Fractievoorzitter", "Group leader")}</th><th scope="col">{t("Positie", "Position")}</th></tr></thead>
             <tbody>
-              {PARTIES.map((p) => (
+              {seated.map((p) => (
                 <tr key={p.id}>
                   <th scope="row"><Link to={`/partijen/${p.id}`}><span className="swatch" style={{ background: p.color, marginRight: 8 }} />{p.name}</Link> <span className="muted small">{p.fullName !== p.name ? p.fullName : ""}</span></th>
                   <td className="num">{p.seats ?? "–"}</td>
                   <td className="num">{(((p.seats ?? 0) * 100) / TOTAL_SEATS).toLocaleString(lang === "nl" ? "nl-NL" : "en-GB", { maximumFractionDigits: 1 })}</td>
-                  <td>{p.leaderId ? <Link to={`/politici/${p.leaderId}`}>{politicianById.get(p.leaderId)?.name}</Link> : "–"}</td>
-                  <td className="muted small">{t("niet geladen", "not loaded")}</td>
+                  <td>{p.leaderId ? <Link to={`/politici/${p.leaderId}`}>{politicianById.get(p.leaderId)?.name}</Link> : p.leader ?? "–"}</td>
+                  <td>{p.coalition ? <span className="tag-coalition">{t("Coalitie", "Coalition")}</span> : <span className="muted small">{t("Oppositie", "Opposition")}</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <Source sources={[ELECTION_2025]} />
+        <Source sources={[REF.seatsSource, REF.cabinetSource]} />
       </section>
 
       <section className="section grid-12">

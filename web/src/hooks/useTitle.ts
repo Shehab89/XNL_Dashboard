@@ -1,5 +1,5 @@
 import { useEffect } from "react";
 
 export function useTitle(title: string) {
-  useEffect(() => { document.title = title ? `${title} · Politiek Monitor` : "Politiek Monitor"; }, [title]);
+  useEffect(() => { document.title = title ? `${title} · Haagse Lens` : "Haagse Lens · politiek in het nieuws"; }, [title]);
 }

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLang } from "../../hooks/useLang";
 import { useWidth } from "../../hooks/useWidth";
-import { MAJORITY, TOTAL_SEATS, politicianById } from "../../data/reference";
+import { MAJORITY, TOTAL_SEATS } from "../../data/reference";
 import type { Party } from "../../types";
 
 interface Seat { x: number; y: number; angle: number; row: number }
@@ -82,8 +82,8 @@ export function Hemicycle({ parties, selected, onSelect }: {
         <div className="tooltip" style={{ left: cx + mid.x * R, top: cy + mid.y * R - 6 }} role="status">
           <div className="t-title">{activeParty.fullName}</div>
           <div className="t-mono">{activeParty.seats} {t("zetels", "seats")} · {((100 * (activeParty.seats ?? 0)) / TOTAL_SEATS).toLocaleString(lang === "nl" ? "nl-NL" : "en-GB", { maximumFractionDigits: 1 })}%</div>
-          {activeParty.leaderId && <div className="t-mono">{t("Lijsttrekker 2025", "Lead candidate 2025")}: {politicianById.get(activeParty.leaderId)?.name}</div>}
-          <div className="t-mono">{t("Coalitie/oppositie: niet geladen", "Coalition/opposition: not loaded")}</div>
+          {activeParty.leader && <div className="t-mono">{t("Fractievoorzitter", "Group leader")}: {activeParty.leader}</div>}
+          <div className="t-mono">{activeParty.coalition ? t("Coalitie (kabinet-Jetten)", "Coalition (Jetten cabinet)") : t("Oppositie", "Opposition")}</div>
         </div>
       )}
       <div className="legend" aria-label={t("Partijen", "Parties")}>

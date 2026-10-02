@@ -25,26 +25,32 @@ export function LayerTag({ layer }: { layer: Layer }) {
   );
 }
 
-/** Provenance line under a block: where it comes from, when, and whether it is verified. */
+/** Provenance under a block: one short line naming the source, with date, verification and method on demand. */
 export function Source({ sources, method }: { sources: SourceRef[]; method?: string }) {
   const { lang, t } = useLang();
+  const unverified = sources.some((s) => s.verification === "unverified" || s.verification === "demo");
   return (
-    <dl className="source">
-      <dt>{t("Bron", "Source")}</dt>
-      <dd>
-        {sources.map((s, i) => (
-          <span key={s.name + i}>
-            {i > 0 && "; "}
-            {s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.name}</a> : s.name}
-            {s.published && <> ({fmtDate(s.published, lang)})</>}
-            {s.verification === "unverified" && <span className="verify"> {t("nog te verifiëren", "to be verified")}</span>}
-            {s.verification === "demo" && <span className="verify"> {t("demodata", "demo data")}</span>}
-            {s.note && <span className="muted">. {s.note}</span>}
-          </span>
-        ))}
-      </dd>
-      {method && <><dt>{t("Methode", "Method")}</dt><dd>{method}</dd></>}
-    </dl>
+    <details className="source-d">
+      <summary>
+        <span>{t("Bron", "Source")}: {sources.map((s) => s.name.split(":")[0]).join(", ")}</span>
+        {unverified && <span className="verify">{t("te verifiëren", "to verify")}</span>}
+      </summary>
+      <dl className="source">
+        <dt>{t("Bron", "Source")}</dt>
+        <dd>
+          {sources.map((s, i) => (
+            <span key={s.name + i}>
+              {i > 0 && "; "}
+              {s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.name}</a> : s.name}
+              {(s.published ?? s.updated) && <> ({fmtDate((s.published ?? s.updated)!, lang)})</>}
+              {s.verification === "unverified" && <span className="verify"> {t("nog te verifiëren", "to be verified")}</span>}
+              {s.note && <span className="muted">. {s.note}</span>}
+            </span>
+          ))}
+        </dd>
+        {method && <><dt>{t("Methode", "Method")}</dt><dd>{method}</dd></>}
+      </dl>
+    </details>
   );
 }
 

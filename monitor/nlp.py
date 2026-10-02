@@ -39,11 +39,28 @@ class Tagger:
                 parts.append(re.escape(stem.rstrip("$")) + (r"(?!\w)" if whole else ""))
             self.issues.append((name, re.compile(r"(?<!\w)(?:" + "|".join(parts) + ")", re.I)))
         self.colors = {name: spec.get("color", "#888888") for name, spec in entities["parties"].items()}
+        self.people = [(name, re.compile(rf"(?<![\w-])(?:{alternation(spec['aliases'])})(?![\w-])"))
+                       for name, spec in (entities.get("politicians") or {}).items()]
 
     def tag(self, text):
         parties = [name for name, pats in self.parties if any(p.search(text) for p in pats)]
         issues = [name for name, pat in self.issues if pat.search(text)]
         return parties, issues
+
+    def politicians(self, text):
+        return [name for name, pat in self.people if pat.search(text)]
+
+
+def alternation(aliases):
+    """Aliases as one regex alternation, longest first. re.escape output is also valid in PostgreSQL regexes."""
+    return "|".join(re.escape(a) for a in sorted(aliases, key=len, reverse=True))
+
+
+def politician_spec(entities):
+    """The politician rules for the database (function tag_politicians): case-sensitive whole-word aliases.
+    The database tags every stored item with them, so the website and this config never drift apart."""
+    return [{"name": name, "pattern": rf"(^|[^[:alnum:]_-])({alternation(spec['aliases'])})($|[^[:alnum:]_-])"}
+            for name, spec in (entities.get("politicians") or {}).items()]
 
 
 # --------------------------------------------------------------------------- lexicon sentiment
@@ -171,8 +188,9 @@ def analyse(items, tagger=None, backend=None, keep_irrelevant=False):
     tagger = tagger or Tagger()
     kept = []
     for item in items:
-        parties, issues = tagger.tag(f"{item.get('title') or ''} {item['text']}")
-        if parties or issues or keep_irrelevant:
+        text = f"{item.get('title') or ''} {item['text']}"
+        parties, issues = tagger.tag(text)
+        if parties or issues or keep_irrelevant or tagger.politicians(text):
             kept.append({**item, "parties": parties, "issues": issues})
     if not kept:
         return [], backend or "none"

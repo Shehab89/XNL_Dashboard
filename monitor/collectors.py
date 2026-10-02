@@ -23,11 +23,13 @@ def _recent(iso, since):
 
 
 def search_queries(entities):
-    """One search query per party and per issue: (label, list of terms)."""
+    """One search query per party, per politician (full name) and per issue: (label, list of terms)."""
     queries = []
     for name, spec in entities["parties"].items():
         terms = [name] + [a for a in spec.get("exact", []) + spec.get("words", []) if " " not in a][:2]
         queries.append((name, list(dict.fromkeys(terms))))
+    for name, spec in (entities.get("politicians") or {}).items():
+        queries.append((name, [name]))
     for name, stems in entities["issues"].items():
         terms = [s.rstrip("$") for s in stems if len(s.rstrip("$")) >= 5][:3]
         queries.append((name, terms))

@@ -31,7 +31,9 @@ describe("format", () => {
 });
 
 describe("reference data", () => {
-  it("adds up to 150 seats and links every leader to a known politician", () => {
+  it("adds up to 150 seats and links every leader to a known politician", async () => {
+    await loadMonitor();
+    expect(PARTIES.length).toBeGreaterThan(10);
     expect(PARTIES.reduce((a, p) => a + (p.seats ?? 0), 0)).toBe(TOTAL_SEATS);
     for (const p of PARTIES) if (p.leaderId) expect(POLITICIANS.some((x) => x.id === p.leaderId)).toBe(true);
     for (const x of POLITICIANS) expect(partyById.has(x.partyId)).toBe(true);
@@ -44,8 +46,10 @@ describe("monitor service", () => {
     expect(d.weeks).toHaveLength(raw.weeks.length);
     expect(d.partialWeek).toBe(d.weeks.length - 1);
     for (const [, c] of d.party) expect(c.series.n).toHaveLength(d.weeks.length);
-    const unknownLinks = raw.matrix.length - d.links.length;
-    expect(unknownLinks).toBe(0);
+    expect(d.links.length).toBeGreaterThan(0);
+    expect(d.personTopics.length).toBeGreaterThan(0);
+    expect(d.politician.size).toBe(POLITICIANS.length);
+    expect(partyById.get("pro")?.leader).toBe("Jesse Klaver");
   });
 });
 

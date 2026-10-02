@@ -19,7 +19,7 @@ from . import llm
 from .collectors import (GOOGLE_NEWS, collect_all, history_gdelt, history_google_news, history_mastodon,
                          search_queries)
 from .common import NEWS_PLATFORMS, Http, env, load_yaml, log, make_item
-from .nlp import Tagger, analyse
+from .nlp import Tagger, analyse, politician_spec
 from .storage import LocalStore, SupabaseStore, get_store
 
 # When the same article arrives from several news sources, keep the richest one.
@@ -91,6 +91,7 @@ def run(only=None, hours=None, backend=None, retention_days=400, extra_json=None
         log.warning("Duplicate removal skipped: %s", str(exc)[:200])
     if retention_days:
         store.prune(retention_days)
+    publish(store, entities)
 
     empty = [name for name, n in report.items() if n == 0]
     if empty:
@@ -99,6 +100,25 @@ def run(only=None, hours=None, backend=None, retention_days=400, extra_json=None
         log.error("No source returned any data. Check the network connection and config/sources.yaml.")
         return 1
     return 0
+
+
+def web_reference(entities):
+    """Reference facts for the website, straight from config/entities.yaml."""
+    keep = ("color", "full_name", "seats", "leader", "coalition")
+    return {
+        **(entities.get("reference") or {}),
+        "parties": [{"name": n, **{k: p.get(k) for k in keep}} for n, p in entities["parties"].items()],
+        "politicians": [{"name": n, "party": p["party"], "role": p["role"]} for n, p in entities.get("politicians", {}).items()],
+    }
+
+
+def publish(store, entities):
+    """Bring the database's politician tags and the website snapshot up to date. Never fails the run."""
+    try:
+        tagged, size = store.publish(politician_spec(entities), web_reference(entities))
+        log.info("Tagged %d items with politicians; website snapshot rebuilt (%d kB)", tagged, size // 1024)
+    except Exception as exc:  # e.g. the database functions are not installed yet (database/schema.sql)
+        log.warning("Website snapshot skipped: %s", str(exc)[:200])
 
 
 def relabel_backlog(store, entities, limit):
@@ -180,6 +200,7 @@ def backfill(days=365, window_days=7, until=None, sources=("google_news", "gdelt
         log.info("Removed %d duplicate items", store.remove_duplicates())
     except Exception as exc:
         log.warning("Duplicate removal skipped: %s", str(exc)[:200])
+    publish(store, entities)
     return 0
 
 
@@ -208,6 +229,7 @@ def main(argv=None):
     p_back.add_argument("--sources", default="google_news,gdelt,mastodon")
     sub.add_parser("demo", help="write fictional demo data to the local store")
     sub.add_parser("queries", help="print the search queries as JSON")
+    sub.add_parser("publish", help="re-tag politicians and rebuild the website snapshot (no collection)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -220,6 +242,9 @@ def main(argv=None):
     if args.cmd == "queries":
         print(json.dumps([{"label": label, "terms": terms}
                           for label, terms in search_queries(load_yaml("entities.yaml"))], ensure_ascii=False))
+        return 0
+    if args.cmd == "publish":
+        publish(get_store(), load_yaml("entities.yaml"))
         return 0
     return demo()
 

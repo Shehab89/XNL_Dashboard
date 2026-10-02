@@ -18,7 +18,7 @@ PLATFORM_WEIGHTS = {"news": 0.28, "google_news": 0.14, "gdelt": 0.05, "bluesky":
                     "reddit": 0.14, "telegram": 0.04}
 
 # Base attention (relative volume) and base tone per party in the demo world.
-PARTY_PROFILE = {"PVV": (1.0, -0.14), "VVD": (0.75, -0.04), "D66": (0.8, 0.06), "GL-PvdA": (0.7, -0.02),
+PARTY_PROFILE = {"PVV": (1.0, -0.14), "VVD": (0.75, -0.04), "D66": (0.8, 0.06), "PRO": (0.7, -0.02),
                  "CDA": (0.55, 0.05), "JA21": (0.35, -0.06), "FvD": (0.25, -0.2), "SP": (0.25, 0.02),
                  "BBB": (0.3, -0.05), "NSC": (0.15, -0.02), "PvdD": (0.15, 0.03), "ChristenUnie": (0.12, 0.05),
                  "SGP": (0.08, 0.0), "DENK": (0.12, -0.08), "Volt": (0.12, 0.08), "50PLUS": (0.04, 0.0)}

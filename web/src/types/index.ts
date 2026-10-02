@@ -25,6 +25,8 @@ export interface WeeklySeries {
   n: number[];
   pos: number[];
   neg: number[];
+  /** Items from social media (the rest is news). */
+  soc: number[];
 }
 
 export interface ToneSummary {
@@ -47,8 +49,10 @@ export interface Party {
   name: string; // abbreviation as used in the Kamer
   fullName: string;
   color: string;
-  seats: number | null; // Tweede Kamer, after the 29 October 2025 election
-  leaderId?: string;
+  seats: number | null; // current fractie size in the Tweede Kamer
+  leader?: string; // fractievoorzitter
+  leaderId?: string; // set when the leader is a tracked politician
+  coalition: boolean;
   seatsSource: SourceRef;
 }
 
@@ -91,6 +95,9 @@ export interface PartyTopicLink {
   n: number;
 }
 
+/** Items mentioning both a politician and a topic (or another party), with their tone counts. */
+export interface Link { from: string; to: string; n: number; pos: number; neg: number }
+
 export interface Totals {
   items: number;
   firstDay: string;
@@ -99,6 +106,7 @@ export interface Totals {
   sources: number;
   withParty: number;
   withTopic: number;
+  withPolitician: number;
   platforms: { platform: string; n: number }[];
   generated: string;
 }

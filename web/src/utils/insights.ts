@@ -1,19 +1,17 @@
+import type { Filters } from "../hooks/useFilters";
 import type { Coverage } from "../types";
-import { change, windowSum } from "./series";
+import { counts, inPeriod } from "./filters";
 
 export interface Mover { id: string; recent: number; change: number | null; weekly: number[] }
 
-/** Attention over the last `size` complete weeks, with the change against the `size` weeks before. Counting only
- * complete weeks keeps a half-finished week from looking like a collapse. */
-export function rankByRecent(entries: [string, number[]][], partialWeek: number, size = 4): Mover[] {
-  return entries
-    .map(([id, weekly]) => ({ id, weekly, recent: windowSum(weekly, partialWeek, size), change: change(weekly, partialWeek, size) }))
+/** Attention in the selected period and source, with the change against the period before, busiest first.
+ * Only complete weeks count, so a half-finished week never looks like a collapse. */
+export function rank(map: Map<string, Coverage>, f: Pick<Filters, "period" | "source">, partialWeek: number): Mover[] {
+  return [...map.entries()]
+    .map(([id, c]) => {
+      const weekly = counts(c.series, f.source);
+      const { now, change } = inPeriod(weekly, partialWeek, f.period);
+      return { id, weekly, recent: now, change };
+    })
     .sort((a, b) => b.recent - a.recent);
-}
-
-export const coverageEntries = (m: Map<string, Coverage>): [string, number[]][] => [...m.entries()].map(([id, c]) => [id, c.series.n]);
-
-/** Share of the items that carry a tone label, per direction. */
-export function toneShare(c: { n: number; pos: number; neg: number }) {
-  return c.n ? { pos: c.pos / c.n, neg: c.neg / c.n } : { pos: 0, neg: 0 };
 }

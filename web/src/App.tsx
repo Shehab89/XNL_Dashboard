@@ -1,5 +1,6 @@
 import { lazy } from "react";
 import { HashRouter, Route, Routes } from "react-router-dom";
+import { FilterProvider } from "./hooks/useFilters";
 import { LangProvider } from "./hooks/useLang";
 import { Layout } from "./layouts/Layout";
 
@@ -22,6 +23,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 export function App() {
   return (
     <LangProvider>
+      <FilterProvider>
       <HashRouter>
         <Routes>
           <Route element={<Layout />}>
@@ -41,6 +43,7 @@ export function App() {
           </Route>
         </Routes>
       </HashRouter>
+      </FilterProvider>
     </LangProvider>
   );
 }

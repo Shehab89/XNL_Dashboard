@@ -31,7 +31,8 @@ def tagger():
 @pytest.mark.parametrize("text, parties, issues", [
     ("Wilders wil de asielinstroom beperken", ["PVV"], ["Migratie & asiel"]),
     ("Yeşilgöz en Jetten debatteren over huurprijzen", ["VVD", "D66"], ["Wonen"]),
-    ("De SP en GL-PvdA willen het eigen risico in de zorg afschaffen", ["GL-PvdA", "SP"], ["Zorg"]),
+    ("De SP en GL-PvdA willen het eigen risico in de zorg afschaffen", ["PRO", "SP"], ["Zorg"]),
+    ("Klaver (PRO) verbaasd over oproep van Paternotte", ["D66", "PRO"], []),
     ("Ik denk dat de sp niet goed is en we zorgen ons", [], []),     # lower-case 'sp' / 'zorgen' are not matches
     ("DENK stelt vragen; denk daar maar eens over na", ["DENK"], []),
     ("Een klaver met vier blaadjes", [], []),                           # 'klaver' (clover) is not Klaver
@@ -263,10 +264,11 @@ def test_parse_bluesky_mastodon_gdelt():
     assert gd["source"] == "nu.nl" and gd["published_at"].startswith("2026-09-29T08:15")
 
 
-def test_search_queries_cover_parties_and_issues():
+def test_search_queries_cover_parties_politicians_and_issues():
     entities = load_yaml("entities.yaml")
     queries = dict(col.search_queries(entities))
-    assert "Wilders" in queries["PVV"] and len(queries) == len(entities["parties"]) + len(entities["issues"])
+    assert "Wilders" in queries["PVV"] and queries["Jesse Klaver"] == ["Jesse Klaver"]
+    assert len(queries) == len(entities["parties"]) + len(entities["politicians"]) + len(entities["issues"])
 
 
 def test_youtube_handle_resolution():
@@ -513,3 +515,14 @@ def test_local_store_removes_duplicates(tmp_path):
     assert store.remove_duplicates() == 1
     left = store.load(days=10_000)
     assert set(left["platform"]) == {"news", "google_news"} and len(left) == 3  # short titles are left alone
+
+
+def test_politicians_and_database_spec(tagger):
+    text = "Premier Jetten en Klaver (PRO) botsen; een klaver met vier blaadjes"
+    assert tagger.politicians(text) == ["Rob Jetten", "Jesse Klaver"]
+    entities = load_yaml("entities.yaml")
+    spec = nlp.politician_spec(entities)
+    assert {s["name"] for s in spec} == set(entities["politicians"])
+    assert all(p["party"] in entities["parties"] for p in entities["politicians"].values())
+    ref = pipeline.web_reference(entities)
+    assert sum(p["seats"] or 0 for p in ref["parties"]) == 150

@@ -123,7 +123,7 @@ Then go to **Actions → "Political Media Monitor" → Run workflow** to start t
 
 ## ⚙️ Customise
 
-- **Parties, leaders and issue keywords:** [`config/entities.yaml`](config/entities.yaml). Keep leader names up to date after elections. Names that are also normal Dutch words, like *Klaver* or *DENK*, go under `exact:` so they only match with the right capitals.
+- **Parties, politicians, seats, cabinet and issue keywords:** [`config/entities.yaml`](config/entities.yaml) is the single source of truth. After every run the pipeline re-tags politicians in the database when this file changed and rebuilds the website snapshot, so an edit here reaches the website on the next run (or right away with `python -m monitor publish`). Names that are also normal Dutch words, like *Klaver* or *DENK*, go under `exact:` so they only match with the right capitals.
 - **Sources:** [`config/sources.yaml`](config/sources.yaml).
 - **Sentiment model:** set `SENTIMENT_MODEL` (default [`cardiffnlp/twitter-xlm-roberta-base-sentiment`](https://huggingface.co/cardiffnlp/twitter-xlm-roberta-base-sentiment)), or `SENTIMENT_BACKEND=api` to use the free Hugging Face API with `HUGGINGFACE_API_KEY` instead.
 - **Schedule:** the `cron` line in [`.github/workflows/daily_pipeline.yml`](.github/workflows/daily_pipeline.yml).

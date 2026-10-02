@@ -44,10 +44,10 @@ function TimelineView({ data }: { data: MonitorData }) {
       const peakWeeks = new Set(data.events.filter((e) => e.kind === "media-peak").map((e) => e.date));
       return months.map((m) => {
         const idx = data.weeks.map((w, i) => [w, i] as const).filter(([w]) => w.startsWith(m));
-        const total = idx.reduce((a, [, i]) => a + data.total[i], 0);
+        const total = idx.reduce((a, [, i]) => a + data.total.n[i], 0);
         return {
           key: m, label: fmtDate(m + "-15", lang, "month"), sub: `${fmtInt(total, lang)}`,
-          bars: idx.map(([w, i]) => ({ v: data.total[i], peak: peakWeeks.has(w), label: `${fmtDate(w, lang, "short")}: ${fmtInt(data.total[i], lang)}` })),
+          bars: idx.map(([w, i]) => ({ v: data.total.n[i], peak: peakWeeks.has(w), label: `${fmtDate(w, lang, "short")}: ${fmtInt(data.total.n[i], lang)}` })),
           events: data.events.filter((e) => e.date.startsWith(m)),
         };
       });
@@ -57,7 +57,7 @@ function TimelineView({ data }: { data: MonitorData }) {
         const end = new Date(new Date(w).getTime() + 6 * 86_400_000).toISOString().slice(0, 10);
         const i = data.weeks.indexOf(w);
         return {
-          key: w, label: `${fmtDate(w, lang, "short")}`, sub: `${fmtInt(data.total[i], lang)}`,
+          key: w, label: `${fmtDate(w, lang, "short")}`, sub: `${fmtInt(data.total.n[i], lang)}`,
           events: data.events.filter((e) => e.date >= w && e.date <= end),
           headlines: allHeadlines.filter((h) => h.date >= w && h.date <= end).slice(0, 6),
         };
@@ -71,7 +71,7 @@ function TimelineView({ data }: { data: MonitorData }) {
     return years.map((y) => ({ key: y, label: y, events: HISTORY.filter((e) => e.date.startsWith(y)) }));
   }, [mode, month, months, data, lang, allHeadlines]);
 
-  const maxBar = Math.max(1, ...data.total);
+  const maxBar = Math.max(1, ...data.total.n);
   const modes: [Mode, string, string][] = [["today", "Vandaag", "Today"], ["month", "Maand", "Month"], ["year", "Jaar", "Year"], ["history", "Historisch", "Historical"]];
 
   return (
@@ -104,8 +104,8 @@ function TimelineView({ data }: { data: MonitorData }) {
       </div>
       {mode === "today" && (
         <p className="small muted" style={{ marginTop: 0 }}>
-          {t(`Dit is een momentopname: de laatste dagen tot ${fmtDate(data.totals.lastItem.slice(0, 10), lang)}, niet live.`,
-            `This is a snapshot: the last days up to ${fmtDate(data.totals.lastItem.slice(0, 10), lang)}, not live.`)}
+          {t(`Laatste dagen t/m ${fmtDate(data.totals.lastItem.slice(0, 10), lang)}.`,
+            `Last days up to ${fmtDate(data.totals.lastItem.slice(0, 10), lang)}.`)}
         </p>
       )}
       <div className="wall" ref={wallRef} tabIndex={0} role="region" aria-label={t("Tijdlijn, horizontaal scrollbaar", "Timeline, scrolls horizontally")}>

@@ -1,7 +1,7 @@
 import { Bars } from "../components/TopicBars";
 import { Breadcrumbs, LayerTag, SectionHead, Source, Stat } from "../components/ui";
 import { WithData } from "../components/WithData";
-import { ELECTION_2025 } from "../data/reference";
+import { REF } from "../data/reference";
 import { useHashTarget } from "../hooks/useHashTarget";
 import { useLang } from "../hooks/useLang";
 import { useTitle } from "../hooks/useTitle";
@@ -26,7 +26,7 @@ function DataView({ data }: { data: MonitorData }) {
     ["Herkennen", "Recognise", "Partijen, politici en onderwerpen via vaste namen en trefwoorden.", "Parties, politicians and topics via fixed names and keywords."],
     ["Toon inschatten", "Estimate tone", "Een meertalig taalmodel; voor een deel Google Gemini.", "A multilingual language model; for a share, Google Gemini."],
     ["Opslaan", "Store", "Database (Supabase), één rij per bericht met link naar de bron.", "Database (Supabase), one row per item with a link to the source."],
-    ["Momentopname", "Snapshot", `Geaggregeerd per week voor deze site, ${fmtDate(tot.generated, lang)}.`, `Aggregated per week for this site, ${fmtDate(tot.generated, lang)}.`],
+    ["Publiceren", "Publish", `Na elke ronde berekent de database één samenvatting per week, die deze site direct leest. Laatst: ${fmtDate(tot.generated, lang)}.`, `After each run the database computes one weekly summary that this site reads directly. Last: ${fmtDate(tot.generated, lang)}.`],
   ];
   const limits: [string, string][] = [
     [`Google News levert ${Math.round((100 * (tot.platforms.find((p) => p.platform === "google_news")?.n ?? 0)) / tot.items)}% van de berichten. De monitor weerspiegelt dus vooral wat nieuwsmedia publiceren, niet wat mensen denken.`,
@@ -34,12 +34,10 @@ function DataView({ data }: { data: MonitorData }) {
     ["Aandacht is geen steun. Een partij die veel genoemd wordt, kan om goede of slechte redenen in het nieuws zijn.", "Attention is not support. A party mentioned often can be in the news for good or bad reasons."],
     [`De toon is een modelinschatting. Slechts ${fmtInt(tot.ai, lang)} berichten zijn door Gemini beoordeeld; de rest door een kleiner model dat nieuwskoppen vaker negatief noemt. Vergelijk toon alleen tussen partijen of onderwerpen, niet als absoluut oordeel.`,
       `Tone is a model estimate. Only ${fmtInt(tot.ai, lang)} items were judged by Gemini; the rest by a smaller model that calls headlines negative more often. Compare tone between parties or topics only, not as an absolute verdict.`],
-    ["Namen herkennen mist dingen: bijnamen, nieuwe partijnamen en verwijzingen als 'de premier'. In 2026 duikt in koppen de naam PRO op (mogelijk een nieuwe naam van GL-PvdA); die telt nog niet mee.",
-      "Name matching misses things: nicknames, new party names and references like 'the prime minister'. In 2026 headlines mention PRO (possibly a new name for GL-PvdA); it is not counted yet."],
-    ["Zetels, rollen en historische gebeurtenissen zijn met de hand ingevoerd en gemarkeerd als 'nog te verifiëren' tot ze uit de officiële bron komen.",
-      "Seats, roles and historical events were entered by hand and are marked 'to be verified' until they come from the official source."],
-    ["Moties, stemmingen en wetsvoorstellen zijn nog niet gekoppeld. Coalitie en oppositie worden daarom niet getoond.",
-      "Motions, votes and bills are not connected yet, so coalition and opposition are not shown."],
+    ["Namen herkennen mist dingen: bijnamen en verwijzingen als 'de premier'. Oude berichten over GL-PvdA tellen mee bij PRO.",
+      "Name matching misses things: nicknames and references like 'the prime minister'. Older items on GL-PvdA count towards PRO."],
+    [`Zetels, fractievoorzitters en het kabinet komen uit één bestand in de backend (config/entities.yaml), bijgewerkt ${fmtDate(REF.asOf, lang)} uit tweedekamer.nl en parlement.com.`,
+      `Seats, group leaders and the cabinet come from one backend file (config/entities.yaml), updated ${fmtDate(REF.asOf, lang)} from tweedekamer.nl and parlement.com.`],
     ["Oudere weken zijn achteraf opgehaald (backfill). Dat vindt minder berichten dan live verzamelen, dus het totaal stijgt naar de recente weken toe deels door de methode. Vergelijk daarom vooral partijen en onderwerpen binnen dezelfde periode.",
       "Older weeks were fetched afterwards (backfill), which finds fewer items than live collection, so totals rise towards recent weeks partly because of the method. Compare parties and topics within the same period first."],
     ["X (Twitter) en Telegram zitten niet of nauwelijks in deze momentopname.", "X (Twitter) and Telegram are absent or nearly absent from this snapshot."],
@@ -50,7 +48,7 @@ function DataView({ data }: { data: MonitorData }) {
       <Breadcrumbs items={[{ label: t("Overzicht", "Overview"), to: "/" }, { label: t("Data en methode", "Data and method") }]} />
       <header style={{ paddingBottom: 12 }}>
         <h1 className="display h1">{t("Data en methode", "Data and method")}</h1>
-        <p className="lede" style={{ marginTop: 14 }}>{t("Waar elk getal vandaan komt, wat het wel en niet zegt, en wie de monitor maakt.", "Where every number comes from, what it does and does not say, and who makes the monitor.")}</p>
+        <p className="lede" style={{ marginTop: 14 }}>{t("Waar elk getal vandaan komt en wat het wel en niet zegt.", "Where every number comes from and what it does and does not say.")}</p>
       </header>
 
       <section className="section" style={{ borderTop: 0 }}>
@@ -89,7 +87,7 @@ function DataView({ data }: { data: MonitorData }) {
         <div className="span-5">
           <SectionHead kicker="03" title={t("Herkomst van de berichten", "Where items come from")} aside={<LayerTag layer="data" />} />
           <Bars rows={tot.platforms.map((p) => ({ id: p.platform, label: PLATFORM_LABEL[p.platform] ?? p.platform, value: p.n }))} />
-          <Source sources={[MONITOR_SOURCE, ELECTION_2025, TK_OPEN_DATA]} />
+          <Source sources={[MONITOR_SOURCE, REF.seatsSource, TK_OPEN_DATA]} />
         </div>
       </section>
 

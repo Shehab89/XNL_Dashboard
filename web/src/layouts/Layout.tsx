@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { PageSkeleton } from "../components/ui";
+import { FilterBar } from "../components/FilterBar";
 import { SearchPalette } from "../components/SearchPalette";
 import { useLang } from "../hooks/useLang";
 import { useMonitor } from "../hooks/useMonitor";
@@ -29,6 +30,9 @@ function BrandMark() {
     </svg>
   );
 }
+
+/** Pages whose numbers follow the period and source filters. */
+const FILTERED = [/^\/$/, /^\/partijen/, /^\/politici/, /^\/onderwerpen/];
 
 export function Layout() {
   const { lang, setLang, t } = useLang();
@@ -60,9 +64,9 @@ export function Layout() {
       </a>
       <header className="masthead">
         <div className="page masthead-inner">
-          <Link to="/" className="brand" aria-label={t("Politiek Monitor, naar overzicht", "Politiek Monitor, go to overview")}>
+          <Link to="/" className="brand" aria-label={t("Haagse Lens, naar overzicht", "Haagse Lens, go to overview")}>
             <BrandMark />
-            <span className="brand-name">Politiek Monitor <em>Nederland</em></span>
+            <span className="brand-name">Haagse <em>Lens</em></span>
           </Link>
           <nav className="nav" aria-label={t("Hoofdmenu", "Main menu")}>{navLinks}</nav>
           <div className="masthead-tools">
@@ -84,13 +88,11 @@ export function Layout() {
       </header>
       <div className="freshness" role="note">
         <div className="page">
-          <span><span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, background: "var(--blue)", marginRight: 6, verticalAlign: 1 }} />
-            {t("Momentopname, geen live data", "Snapshot, not live data")}</span>
           {state.status === "ready" && <>
-            <span>{t("Berichten t/m", "Coverage up to")} {fmtDate(state.data.totals.lastItem.slice(0, 10), lang)}</span>
+            <span><span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, background: state.data.origin === "live" ? "var(--green)" : "var(--blue)", marginRight: 6, verticalAlign: 1 }} />
+              {state.data.origin === "live" ? t("Bijgewerkt", "Updated") : t("Opgeslagen kopie van", "Saved copy from")} {fmtDate(state.data.totals.generated.slice(0, 10), lang)}</span>
             <span>{fmtInt(state.data.totals.items, lang)} {t("berichten sinds", "items since")} {fmtDate(state.data.totals.firstDay, lang)}</span>
           </>}
-          <span>{t("Kamerdata (moties, stemmingen): nog niet gekoppeld", "Parliamentary records (motions, votes): not connected yet")}</span>
         </div>
       </div>
 
@@ -107,6 +109,8 @@ export function Layout() {
         </>
       )}
 
+      {FILTERED.some((r) => r.test(location.pathname)) && <FilterBar />}
+
       <main id="main" tabIndex={-1} style={{ outline: "none" }}>
         <Suspense fallback={<PageSkeleton />}>
           <Outlet />
@@ -116,10 +120,10 @@ export function Layout() {
       <footer className="footer">
         <div className="page grid-12">
           <div className="span-5">
-            <div className="row" style={{ marginBottom: 10 }}><BrandMark /><span className="brand-name">Politiek Monitor</span></div>
+            <div className="row" style={{ marginBottom: 10 }}><BrandMark /><span className="brand-name">Haagse Lens</span></div>
             <p className="prose" style={{ margin: 0 }}>
-              {t("Een onafhankelijke, niet-partijgebonden kaart van wat er over de Nederlandse politiek wordt gepubliceerd. Gemaakt door EinData (Shehab Al-Masri). Elke grafiek noemt zijn bron; analyse en duiding zijn als zodanig gemarkeerd.",
-                "An independent, non-partisan map of what is published about Dutch politics. Made by EinData (Shehab Al-Masri). Every chart names its source; analysis and interpretation are marked as such.")}
+              {t("Onafhankelijk en partijneutraal. Een project van EinData (Shehab Al-Masri).",
+                "Independent and non-partisan. A project by EinData (Shehab Al-Masri).")}
             </p>
           </div>
           <div className="span-3">
