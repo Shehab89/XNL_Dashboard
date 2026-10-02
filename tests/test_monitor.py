@@ -705,3 +705,10 @@ def test_http_retries_refused_requests_like_chrome(monkeypatch):
     monkeypatch.setattr(http.session, "get", lambda *a, **k: Resp())
     assert http.get("https://site.nl/feed", as_json=True) == {"ok": 1}
     assert Fake.calls[0]["impersonate"] == "chrome" and not http.is_down("https://site.nl/x")
+
+
+def test_discover_feeds_from_home_page():
+    page = ('<head><link rel="alternate" type="application/rss+xml" href="/rss/politiek.xml">'
+            "<link type='application/atom+xml' rel='alternate' href='https://x.nl/atom'><link rel=icon href=/f.ico></head>")
+    assert col.discover_feeds(page, "https://site.nl") == ["https://site.nl/rss/politiek.xml", "https://x.nl/atom"]
+    assert col.discover_feeds(None, "https://site.nl") == []

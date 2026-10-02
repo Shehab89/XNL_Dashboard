@@ -74,13 +74,36 @@ def parse_feed(xml, platform, default_source, since):
     return items
 
 
+_FEED_LINK = re.compile(r'<link[^>]+type=["\']application/(?:rss|atom)\+xml["\'][^>]*>', re.I)
+
+
+def discover_feeds(page, base):
+    """Feed addresses a site announces in its HTML (<link rel="alternate" type="application/rss+xml">)."""
+    found = []
+    for tag in _FEED_LINK.findall(page or ""):
+        href = re.search(r'href=["\']([^"\']+)', tag)
+        if href:
+            url = href.group(1)
+            found.append(url if "://" in url else base.rstrip("/") + "/" + url.lstrip("/"))
+    return list(dict.fromkeys(found))
+
+
 def collect_news_feeds(cfg, http, since, **_):
     items = []
     for outlet, urls in (cfg.get("news_feeds") or {}).items():
+        got = False
         for url in urls:
             xml = http.get(url)
             if xml:
+                got = True
                 items += parse_feed(xml, "news", outlet, since)
+        if not got and urls:  # every configured feed failed: use the feeds the site's home page lists
+            base = "/".join(urls[0].split("/")[:3])
+            for url in discover_feeds(http.get(base), base)[:2]:
+                xml = http.get(url)
+                if xml:
+                    log.info("  %s: using %s, found on its home page (update config/sources.yaml)", outlet, url)
+                    items += parse_feed(xml, "news", outlet, since)
     return items
 
 
@@ -360,11 +383,18 @@ def _youtube_page(http, url, params=None):
 
 
 def resolve_youtube_channel(http, ref, name=None):
-    """A channel ID (UC...) as is; an @handle is looked up on the channel page. When the handle does not exist,
+    """A channel ID (UC...) as is; a handle or old custom URL is looked up on the channel page. When it does not exist,
     the first channel YouTube's search finds for `name` is used. None when neither works."""
     if re.fullmatch(r"UC[\w-]{22}", ref):
         return ref
-    match = _CHANNEL_ID.search(_youtube_page(http, f"https://www.youtube.com/{ref if ref.startswith('@') else '@' + ref}"))
+    # "@handle", an old custom URL ("PVVPers", "c/ZEMBLAproductie", "user/groenlinks") or a bare name tried as both
+    bare = ref.lstrip("@")
+    paths = [ref] if "/" in ref else [f"@{bare}", bare, f"c/{bare}"]
+    match = None
+    for path in paths:
+        match = _CHANNEL_ID.search(_youtube_page(http, f"https://www.youtube.com/{path}"))
+        if match:
+            break
     if not match and name:  # sp=EgIQAg== limits the search to channels
         match = _CHANNEL_ID.search(_youtube_page(http, "https://www.youtube.com/results",
                                                  {"search_query": name, "sp": "EgIQAg=="}))
@@ -586,7 +616,8 @@ def collect_x_search(cfg, http, since, queries, **_):
         try:
             out = subprocess.run(cmd, env=run_env, capture_output=True, text=True, timeout=120)
             if out.returncode:
-                log.info("  x %s: failed: %s", label, ((out.stderr or out.stdout).strip().splitlines() or ["?"])[-1][:200])
+                lines = [l for l in (out.stderr + "\n" + out.stdout).splitlines() if l.strip()]
+                log.info("  x %s: twitter-cli failed: %s", label, " | ".join(l.strip()[:200] for l in lines[-4:]) or "?")
             else:
                 found = [i for i in parse_x_cli(json.loads(out.stdout or "null")) if _recent(i["published_at"], since)]
         except (subprocess.TimeoutExpired, ValueError) as exc:
