@@ -208,4 +208,49 @@ youtube:
     Vereniging Eigen Huis: "@VerenigingEigenHuis"
     Defensie: "@defensie"
 
-# X / Twitter: optional, see scraper/ (needs your own X login cookies; use at your own risk).
+# X / Twitter, two free routes:
+# 1. x_profiles (below): recent posts of these accounts via X's public embed service. No login, runs in the cloud,
+#    but accounts only (no search) and X may throttle it. Handles that return nothing are logged and skipped.
+# 2. The logged-in search scraper in scraper/, run on your own computer (X blocks it from cloud servers):
+#    see "X on your own computer" in the README and .github/workflows/x_home.yml.
+x_profiles:
+  accounts:
+    # party leaders and prominent politicians
+    - RobJetten
+    - geertwilderspvv
+    - DilanYesilgozVVD
+    - jesseklaver
+    - hbontenbal
+    - JoostEerdmans
+    - thierrybaudet
+    - CarolineVDPlas
+    - MirjamBikker
+    - monakeijzer
+    - janpaternotte
+    - estherouwehand
+    - LaurensDassen
+    - jimmydijk
+    - FransTimmermans
+    # parties
+    - PVV
+    - VVD
+    - D66
+    - cdavandaag
+    - christenunie
+    - SGPnieuws
+    - SPnl
+    - PartijvdDieren
+    - fvdemocratie
+    - JA21
+    - VoltNederland
+    # government, parliament and newsrooms
+    - MinPres
+    - Rijksoverheid
+    - tweedekamer
+    - NOS
+    - nos_politiek
+    - RTLnieuws
+    - nunl
+    - telegraaf
+    - volkskrant
+    - NRC

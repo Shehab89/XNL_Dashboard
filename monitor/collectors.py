@@ -491,6 +491,48 @@ def history_mastodon(cfg, http, since, max_pages=15):
     return items
 
 
+# --------------------------------------------------------------------------- X (no login)
+# X's embed service (the one behind "embedded timeline" widgets on news sites) serves an account's recent posts
+# without an account or API key. It covers accounts, not search, and X may limit or change it: a profile that returns
+# nothing is logged and skipped. Search-level X data needs the logged-in scraper in scraper/ (see README).
+
+X_EMBED = "https://syndication.twitter.com/srv/timeline-profile/screen-name/"
+
+
+def parse_x_embed(page, handle):
+    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', page or "", re.S)
+    if not m:
+        return []
+    import json
+    entries = (((json.loads(m.group(1)).get("props") or {}).get("pageProps") or {}).get("timeline") or {}).get("entries") or []
+    items = []
+    for e in entries:
+        tw = (e.get("content") or {}).get("tweet") or {}
+        if not tw.get("id_str"):
+            continue
+        user = (tw.get("user") or {}).get("screen_name") or handle
+        published = to_iso(datetime.strptime(tw["created_at"], "%a %b %d %H:%M:%S %z %Y")) if tw.get("created_at") else None
+        items.append(make_item(
+            "x", f"X: @{user}", tw.get("full_text") or tw.get("text") or "", url=f"https://x.com/{user}/status/{tw['id_str']}",
+            uid=f"x:{tw['id_str']}", author=user, published_at=published, lang=tw.get("lang") or "nl",
+            likes=tw.get("favorite_count"), shares=(tw.get("retweet_count") or 0) + (tw.get("quote_count") or 0),
+            replies=tw.get("reply_count")))
+    return items
+
+
+def collect_x_profiles(cfg, http, since, **_):
+    items = []
+    for handle in (cfg.get("x_profiles") or {}).get("accounts", []):
+        page = http.get(X_EMBED + handle, params={"showReplies": "false"}, headers={"Accept": "text/html"})
+        found = [i for i in parse_x_embed(page, handle) if _recent(i["published_at"], since)]
+        log.info("  x @%s: %d recent posts", handle, len(found))
+        items += found
+        if http.is_down(X_EMBED):
+            break
+        time.sleep(2)  # be gentle: X throttles bursts
+    return items
+
+
 COLLECTORS = {
     "news": collect_news_feeds,
     "google_news": collect_google_news,
@@ -500,6 +542,7 @@ COLLECTORS = {
     "reddit": collect_reddit,
     "telegram": collect_telegram,
     "youtube": collect_youtube,
+    "x_profiles": collect_x_profiles,
 }
 
 

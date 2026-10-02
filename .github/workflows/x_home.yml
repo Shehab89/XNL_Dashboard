@@ -1,0 +1,52 @@
+name: X search from your own computer
+
+# X blocks searches from cloud servers, so this job runs on a GitHub "self-hosted runner": a small program on your own
+# computer that picks up this job while the computer is on (README: "X on your own computer"). It searches X with your
+# login cookies, analyses the posts and stores them like every other source. Turn it on with the repository variable
+# X_HOME_RUNNER = true once the runner is installed; until then the job is skipped and nothing waits for a runner.
+on:
+  schedule:
+    - cron: "47 */2 * * *"      # every 2 hours, between the cloud runs
+  workflow_dispatch:
+
+concurrency:
+  group: x-home
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  x:
+    if: vars.X_HOME_RUNNER == 'true'
+    runs-on: [self-hosted, x-home]
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_BACKLOG: "0"              # leave relabelling older items to the cloud run
+      X_AUTH_TOKEN: ${{ secrets.X_AUTH_TOKEN }}
+      X_CT0: ${{ secrets.X_CT0 }}
+      X_PER_QUERY: "60"
+      X_MAX_MINUTES: "25"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install
+        run: |
+          python -m pip install -r requirements.txt
+          cd scraper && npm ci && npx playwright install chromium && npm run build
+      - name: Search X
+        run: |
+          python -m monitor.pipeline queries > scraper/queries.json
+          cd scraper && npm start
+      - name: Analyse and store (X posts only)
+        run: python -m monitor.pipeline run --only none --extra-json scraper/x_items.json --require-db

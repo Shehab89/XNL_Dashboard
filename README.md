@@ -23,15 +23,26 @@ Every 2 hours the monitor collects political news articles and public social-med
 | 📰 News | **GDELT** (global news database) | Free public API, 250 articles per search plus broad searches on Dutch sources | No |
 | 💬 Social | **Bluesky** | Official public API, one search per party and issue | Free Bluesky account (app password) |
 | 💬 Social | **Mastodon** (mastodon.nl, toot.community, mastodon.social, …) | ~50 public hashtag timelines + the whole local timeline of mastodon.nl and toot.community, paged back to the previous run | No |
-| 💬 Social | **Reddit** (r/thenetherlands, r/nederlands, r/ik_ihe, city subs, …) | Public RSS feeds + subreddit search | No |
+| 💬 Social | **Reddit** (r/thenetherlands, r/nederlands, r/ik_ihe, city subs, …) | Free Reddit API: newest posts, comments and search (RSS fallback, usually blocked from cloud servers) | Free Reddit app (`REDDIT_CLIENT_ID/SECRET`) |
 | 💬 Social | **Telegram** public channels | Public web preview (t.me/s/…) | No |
 | 💬 Social | **YouTube** (~60 channels: broadcasters, talk shows, parties, regional) | Channel RSS feeds | No |
 | 💬 Social | **YouTube comments** *(optional)* | YouTube Data API v3: newest comments on the newest videos | Free API key (`YOUTUBE_API_KEY`) |
-| 💬 Social | **X / Twitter** *(optional)* | Browser scraper with your own login cookies | Your X account ⚠️ |
+| 💬 Social | **X / Twitter: accounts** | Recent posts of ~35 politicians, parties and newsrooms via X's public embed service | No |
+| 💬 Social | **X / Twitter: search** *(optional)* | Browser scraper with your login cookies, run on your own computer (see below) | Your X account ⚠️ |
 
 All sources are set in [`config/sources.yaml`](config/sources.yaml). Add or remove outlets, subreddits, hashtags, Telegram channels or YouTube channels there. If one source is down, the others still run. To see which feeds work, run **Actions → "Check sources" → Run workflow** (or `python -m monitor.pipeline probe`): it lists the items per feed/channel for the last 24 hours and every failed URL, without storing anything.
 
-> ⚠️ **About X:** X has no free API. The optional scraper logs in with your browser cookies, which is against X's terms and can get the account locked, so use a secondary account. The monitor is complete without it.
+> ⚠️ **About X:** X has no free API. Two free routes are built in:
+> 1. **Accounts (automatic, in the cloud).** `x_profiles` in `config/sources.yaml` reads the latest posts of the listed accounts through the same public service that powers embedded X timelines on news sites. No login, but accounts only, not search, and X may throttle it.
+> 2. **Search (on your own computer).** X shows every search from cloud servers a "please wait" wall, so the search scraper must run from a home connection. It logs in with your browser cookies, which is against X's terms and can get the account locked, so use a secondary account.
+>
+> **X on your own computer (free, about 10 minutes once):**
+> 1. Install [Node.js 22](https://nodejs.org) and [Python 3.11+](https://www.python.org) on a computer that is often on.
+> 2. GitHub → your repository → **Settings → Actions → Runners → New self-hosted runner**. Follow the commands it shows for your system. When it asks for labels, type `x-home`. Start it (`./run.sh`, or install it as a service so it starts with the computer).
+> 3. Add the secrets `X_AUTH_TOKEN` and `X_CT0` (from x.com: DevTools → Application → Cookies) if you have not yet.
+> 4. **Settings → Secrets and variables → Actions → Variables**: add `X_HOME_RUNNER` = `true`.
+>
+> From then on **"X search from your own computer"** runs every 2 hours while the computer is on, and its posts appear on the website like every other source. Turn it off by deleting the variable.
 
 ---
 
@@ -84,7 +95,7 @@ The full setup uses three free services: **GitHub Actions** collects every 2 hou
 | `BSKY_HANDLE`, `BSKY_APP_PASSWORD` | Bluesky login + app password | Recommended |
 | `YOUTUBE_API_KEY` | Free key from the [Google Cloud console](https://console.cloud.google.com/): create a project, enable **YouTube Data API v3**, then **Credentials → Create credentials → API key**. Adds viewers' comments (1 quota unit per 100 comments, 10,000 free a day) | Recommended |
 | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | Reddit blocks anonymous requests from GitHub servers. Create a free app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (type **script**, any redirect URI); the ID is under the app name, the secret is labelled "secret". Adds posts **and comments** from the Dutch subreddits | Recommended |
-| `X_AUTH_TOKEN`, `X_CT0` | X cookies (DevTools → Application → Cookies → x.com) | Optional |
+| `X_AUTH_TOKEN`, `X_CT0` | X cookies (DevTools → Application → Cookies → x.com) (used by the home runner, see "X on your own computer") | Optional |
 
 Then go to **Actions → "Political Media Monitor" → Run workflow** to start the first collection. After that it runs by itself every 2 hours. The sentiment model runs inside GitHub Actions, which is free for public repos, so no Hugging Face key is needed.
 

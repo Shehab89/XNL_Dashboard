@@ -66,14 +66,15 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-${{ env.SENTIMENT_MODEL }}
 
-      # ---- optional: X (only runs when the X_AUTH_TOKEN and X_CT0 secrets exist) ----
+      # ---- optional: X search from the cloud. X shows GitHub's servers a "please wait" wall, so this is off unless the
+      # repository variable X_IN_CLOUD is "true". Use x_home.yml (your own computer) instead. ----
       - name: Setup Node.js (X scraper)
-        if: env.X_AUTH_TOKEN != '' && github.event.inputs.backfill_days == ''
+        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD == 'true' && github.event.inputs.backfill_days == ''
         uses: actions/setup-node@v7
         with:
           node-version: "22"
       - name: Run X scraper
-        if: env.X_AUTH_TOKEN != '' && github.event.inputs.backfill_days == ''
+        if: env.X_AUTH_TOKEN != '' && vars.X_IN_CLOUD == 'true' && github.event.inputs.backfill_days == ''
         continue-on-error: true      # X problems must never block the other sources
         timeout-minutes: 25          # a hung browser must not eat the whole job
         run: |

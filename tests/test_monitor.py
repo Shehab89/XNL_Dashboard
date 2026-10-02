@@ -631,3 +631,18 @@ def test_reddit_listing_parses_posts_and_comments():
     items = parse_reddit_listing(data, datetime.fromtimestamp(now - 3600, timezone.utc))
     assert [i["source"] for i in items] == ["r/thenetherlands", "r/thenetherlands"]
     assert "Wat vinden jullie" in items[0]["text"] and items[1]["title"].startswith("Re: Wilders")
+
+
+def test_parse_x_embed():
+    import json
+    data = {"props": {"pageProps": {"timeline": {"entries": [{"content": {"tweet": {
+        "id_str": "123", "full_text": "Het kabinet moet nu ingrijpen op asiel", "created_at": "Thu Oct 01 08:15:00 +0000 2026",
+        "favorite_count": 40, "retweet_count": 5, "quote_count": 1, "reply_count": 9, "lang": "nl",
+        "user": {"screen_name": "geertwilderspvv"}}}}, {"content": {}}]}}}}
+    page = f'<html><script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}</script></html>'
+    items = col.parse_x_embed(page, "geertwilderspvv")
+    assert len(items) == 1
+    it = items[0]
+    assert it["platform"] == "x" and it["source"] == "X: @geertwilderspvv" and it["shares"] == 6
+    assert it["url"] == "https://x.com/geertwilderspvv/status/123" and it["published_at"].startswith("2026-10-01T08:15")
+    assert col.parse_x_embed("<html>blocked</html>", "x") == []
