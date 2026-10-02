@@ -484,3 +484,32 @@ def test_relabel_backlog_uses_llm_and_drops_irrelevant(tmp_path, monkeypatch):
     assert pipeline.relabel_backlog(store, load_yaml("entities.yaml"), 10) == 1
     df = store._read().set_index("analysed_by")
     assert len(df) == 2 and df.loc["llm", "parties"] == ["PVV"] and "local" in df.index
+
+
+def test_brief_follows_selection(demo_df):
+    end = demo_df["published_at"].max()
+    recent = demo_df[demo_df["published_at"] > end - pd.Timedelta(days=14)]
+    before = demo_df[(demo_df["published_at"] <= end - pd.Timedelta(days=14)) &
+                     (demo_df["published_at"] > end - pd.Timedelta(days=28))]
+    brief = ins.executive_brief(recent, parties=["D66"], previous=before, days=14)
+    assert "previous 14 days" in brief[1]
+    assert "**D66** dominates" in brief[2]
+    assert not any("**PVV** dominates" in line for line in brief)
+
+
+def test_local_store_removes_duplicates(tmp_path):
+    from monitor.common import make_item
+    from monitor.storage import LocalStore
+
+    store = LocalStore(tmp_path / "items.parquet")
+    title = "Kabinet presenteert nieuwe plannen voor de woningmarkt"
+    items = [make_item("google_news", "NOS", title, title=title, uid="a", published_at="2026-09-01T10:00:00Z"),
+             make_item("news", "NOS", title + "!", title=title + "!", uid="b", published_at="2026-09-01T12:00:00Z"),
+             make_item("google_news", "AD", "Kort", title="Kort", uid="c", published_at="2026-09-01T12:00:00Z"),
+             make_item("google_news", "AD", "Kort", title="Kort", uid="d", published_at="2026-09-01T13:00:00Z")]
+    for item in items:
+        item.update(sentiment="neutral", sentiment_score=0.0, parties=[], issues=[], analysed_by="local")
+    store.upsert(items)
+    assert store.remove_duplicates() == 1
+    left = store.load(days=10_000)
+    assert set(left["platform"]) == {"news", "google_news"} and len(left) == 3  # short titles are left alone

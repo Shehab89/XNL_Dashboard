@@ -3,7 +3,7 @@
 
 # How far back to collect on each run (hours) and how many results per search query.
 lookback_hours: 48
-max_per_query: 50
+max_per_query: 100
 
 # --- NEWS MEDIA ---------------------------------------------------------------------------
 # RSS feeds of Dutch news outlets (full stream of articles; only political ones are kept).
@@ -17,12 +17,17 @@ news_feeds:
   NRC: [https://www.nrc.nl/rss/]
   RTL Nieuws: [https://www.rtlnieuws.nl/rss.xml]
   GeenStijl: [https://www.geenstijl.nl/feeds/recent.atom]
+  De Telegraaf: [https://www.telegraaf.nl/nieuws/politiek/rss]
+  EW: [https://www.ewmagazine.nl/feed/]
+  Follow the Money: [https://www.ftm.nl/feed]
+  Joop: [https://www.bnnvara.nl/joop/rss]
 
 # Google News search (covers hundreds of Dutch outlets incl. regional ones). One search per
 # party and per issue is run automatically; these are extra searches on top of that.
 google_news:
   enabled: true
-  extra_queries: ["Tweede Kamer", "kabinet"]
+  extra_queries: ["Tweede Kamer", "Eerste Kamer", "kabinet", "minister", "staatssecretaris", "coalitie",
+                  "Kamerdebat", "motie", "formatie", "Provinciale Staten", "gemeenteraad", "Haagse politiek"]
 
 # GDELT: global news database, free API. Adds outlets that are not in Google News.
 gdelt:
@@ -45,9 +50,11 @@ reddit:
   subreddits: [thenetherlands, nederlands, Netherlands, NederlandsePolitiek]
 
 # Telegram: public channels (read from https://t.me/s/<channel>, no account needed).
-# Add the channel names you want to follow (the part after t.me/).
+# Add the channel names you want to follow (the part after t.me/). A name that does not exist is logged
+# ("not found") and skipped; the run log shows how many posts each channel gave.
 telegram:
-  channels: []
+  channels: [ongehoordnederland, fvdemocratie, thierrybaudet, wybrenvanhaga, blckbx, deanderekrant,
+             nieuwrechts, viruswaarheid, pvvpers]
 
 # YouTube: channel uploads via RSS (titles + descriptions). Use the channel's @handle (looked up on every run)
 # or its channel ID (starts with "UC"). Handles that cannot be found are logged and skipped.

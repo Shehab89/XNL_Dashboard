@@ -50,3 +50,31 @@ BEGIN
         CREATE POLICY "public_read" ON items FOR SELECT TO anon, authenticated USING (true);
     END IF;
 END $$;
+
+-- Duplicates: the same headline or post saved more than once (several outlets or runs, overlapping backfill
+-- windows). The key is the title (or the first 160 characters of the text) in lower case, without punctuation;
+-- keys shorter than 25 characters are left alone. Of each group the row with AI labels is kept, then the richest
+-- news source, then the earliest. The pipeline calls this after every run.
+CREATE OR REPLACE FUNCTION item_key(title TEXT, body TEXT) RETURNS TEXT LANGUAGE sql IMMUTABLE SET search_path = public AS $$
+    SELECT left(trim(regexp_replace(lower(coalesce(nullif(title, ''), left(body, 160))), '[^a-z0-9à-ÿ]+', ' ', 'g')), 120)
+$$;
+
+CREATE OR REPLACE FUNCTION remove_duplicate_items() RETURNS INTEGER LANGUAGE plpgsql SET search_path = public AS $$
+DECLARE removed INTEGER;
+BEGIN
+    WITH ranked AS (
+        SELECT id, row_number() OVER (
+                   PARTITION BY item_key(title, text)
+                   ORDER BY (analysed_by = 'llm') DESC NULLS LAST,
+                            CASE platform WHEN 'news' THEN 0 WHEN 'google_news' THEN 1 WHEN 'gdelt' THEN 2 ELSE 3 END,
+                            published_at, id) AS n
+        FROM items
+        WHERE length(item_key(title, text)) >= 25
+    )
+    DELETE FROM items USING ranked WHERE items.id = ranked.id AND ranked.n > 1;
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    RETURN removed;
+END $$;
+
+REVOKE ALL ON FUNCTION remove_duplicate_items() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION remove_duplicate_items() TO service_role;

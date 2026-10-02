@@ -2,6 +2,40 @@
 the dashboard is switched to Nederlands. A text without a translation is shown in English."""
 
 NL = {
+    # data-quality notes
+    "**{share} of these items have AI labels.** The rest are labelled by a simpler keyword model that marks more headlines negative than the AI does, so tone here leans negative. AI labelling catches up every run; switch on *AI-labelled only* in the sidebar for the most reliable tone.":
+        "**{share} van deze items heeft een AI-label.** De rest is gelabeld door een eenvoudiger trefwoordmodel dat meer koppen negatief noemt dan de AI, dus de toon valt hier negatiever uit. De AI haalt elke run een deel in; zet *alleen AI-gelabeld* aan in de zijbalk voor de betrouwbaarste toon.",
+    "average {value}": "gemiddeld {value}",
+    "Share of voice counts items that mention a party. Net sentiment = % positive items − % negative items; bubble size = number of mentions; the whisker shows the statistical uncertainty. Compare a party with the dashed average line rather than with zero: headlines are on balance negative for everyone.":
+        "Share of voice telt items die een partij noemen. Netto sentiment = % positieve − % negatieve items; bolgrootte = aantal vermeldingen; de streep toont de statistische onzekerheid. Vergelijk een partij met de gestippelde gemiddelde lijn in plaats van met nul: koppen zijn per saldo voor iedereen negatief.",
+    "The dotted line marks {day}: before it the history was collected once from weekly news searches, after it the regular collection runs every 6 hours. Compare tone across the line, not volume.":
+        "De stippellijn markeert {day}: daarvoor is de geschiedenis één keer verzameld met wekelijkse nieuwszoekopdrachten, daarna loopt de reguliere verzameling elke 6 uur. Vergelijk over de lijn heen de toon, niet het volume.",
+    # round 2: KPI cards, findings, tone explainer, methodology diagram, about
+    '{change} vs. previous period': '{change} t.o.v. de periode ervoor',
+    '{n} news · {m} social': '{n} nieuws · {m} sociaal',
+    '{pos} positive · {neg} negative': '{pos} positief · {neg} negatief',
+    'outlets and channels': 'media en kanalen',
+    'Computed from the items that match your filters, {start} – {end}.': 'Berekend uit de items die bij je filters passen, {start} – {end}.',
+    'ℹ️ What does tone mean? (e.g. a negative post that names a party and an issue)': 'ℹ️ Wat betekent toon? (bijv. een negatief bericht dat een partij en een thema noemt)',
+    'per {unit}': 'per {unit}',
+    'trend': 'trend',
+    'trend {value}': 'trend {value}',
+    'How the monitor works': 'Hoe de monitor werkt',
+    'Solid arrows: the path of every item. Dashed: items the AI could not label yet get keyword labels first and are relabelled by the AI in later runs.': 'Doorgetrokken pijlen: de weg van elk item. Gestippeld: items die de AI nog niet kon labelen krijgen eerst trefwoordlabels en worden in latere runs door de AI opnieuw gelabeld.',
+    'What tone (sentiment) means': 'Wat toon (sentiment) betekent',
+    'About': 'Over',
+    '👤 About': '👤 Over',
+    '**Tone is judged per item** (one headline or post), not per party. It describes the text: critical, angry, alarmed or mocking is *negative*; approving, hopeful or celebrating a success is *positive*; plain factual reporting is *neutral*.\n\n**Every party and issue the item is about gets that item\'s tone.** A negative post that names the PVV and Migration counts once as negative for the PVV and once as negative for Migration.\n\n**Tone does not say who the negativity is aimed at.** "PVV wants an asylum stop, opposition furious" and "PVV furious about asylum chaos" are both negative: in the first the PVV is criticised, in the second the PVV is the critic. So a party\'s negative tone means *the party appears in negative-toned discussion*, often about an issue it campaigns on, not necessarily that people dislike the party.\n\n**Net sentiment** = % positive − % negative items. Example: 100 items, 20 positive and 50 negative gives net −30. News headlines lean negative in general, so compare a party with the average, with other parties or with itself over time, rather than with zero.':
+        '**Toon wordt per item beoordeeld** (één kop of bericht), niet per partij. Het gaat om de tekst: kritisch, boos, verontrust of spottend is *negatief*; instemmend, hoopvol of een succes vierend is *positief*; zakelijke berichtgeving is *neutraal*.\n\n**Elke partij en elk thema waar het item over gaat krijgt de toon van dat item.** Een negatief bericht dat de PVV en Migratie noemt, telt één keer negatief voor de PVV en één keer negatief voor Migratie.\n\n**Toon zegt niet op wie de negativiteit gericht is.** "PVV wil asielstop, oppositie woedend" en "PVV woedend over asielchaos" zijn allebei negatief: in het eerste krijgt de PVV kritiek, in het tweede is de PVV de criticus. Een negatieve toon bij een partij betekent dus *de partij komt voor in negatief getinte discussie*, vaak over een thema waar zij campagne op voert, en niet per se dat mensen de partij niet mogen.\n\n**Netto sentiment** = % positieve − % negatieve items. Voorbeeld: 100 items, waarvan 20 positief en 50 negatief, geeft netto −30. Nieuwskoppen zijn in het algemeen negatief, dus vergelijk een partij met het gemiddelde, met andere partijen of met zichzelf door de tijd, in plaats van met nul.',
+    'News media\\nnews sites (RSS), Google News, GDELT': 'Nieuwsmedia\\nnieuwssites (RSS), Google News, GDELT',
+    'Social media\\nMastodon, YouTube, Reddit,\\nTelegram, Bluesky, X': 'Sociale media\\nMastodon, YouTube, Reddit,\\nTelegram, Bluesky, X',
+    'Collect every 6 hours\\n(GitHub Actions, polite pauses)': 'Elke 6 uur verzamelen\\n(GitHub Actions, met pauzes)',
+    'Remove duplicates\\n(same headline or post)': 'Dubbele items verwijderen\\n(zelfde kop of bericht)',
+    'AI reads each item (Gemini)\\nrelevant? parties, issues, tone': "AI leest elk item (Gemini)\\nrelevant? partijen, thema's, toon",
+    'Fallback when the AI quota is used up:\\nkeywords + sentiment model': 'Reserve als het AI-quotum op is:\\ntrefwoorden + sentimentmodel',
+    'Supabase database\\n(400 days kept)': 'Supabase-database\\n(400 dagen bewaard)',
+    'Older items relabelled\\nby the AI each run': 'Oudere items elke run\\nopnieuw door de AI gelabeld',
+    'This dashboard\\nfilters, charts, findings': 'Dit dashboard\\nfilters, grafieken, bevindingen',
     # page and sidebar
     "Dutch Political Media Monitor": "Politieke Mediamonitor Nederland",
     "Political Media Monitor": "Politieke Mediamonitor",
@@ -102,10 +136,6 @@ NL = {
     "Net sentiment {value}": "Netto sentiment {value}",
     "{n} mentions": "{n} vermeldingen",
     "positive {pos} · negative {neg}": "positief {pos} · negatief {neg}",
-    "Share of voice counts items that mention a party. Net sentiment = % positive items − % negative items; bubble "
-    "size = number of mentions; the whisker shows the statistical uncertainty.":
-        "Share of voice telt items die een partij noemen. Netto sentiment = % positieve items − % negatieve items; "
-        "grootte van de bol = aantal vermeldingen; de streep toont de statistische onzekerheid.",
     # trends
     "Choose a longer period to see trends.": "Kies een langere periode om trends te zien.",
     "Items per {unit}, by tone": "Items per {unit}, naar toon",
