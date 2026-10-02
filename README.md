@@ -83,6 +83,7 @@ The full setup uses three free services: **GitHub Actions** collects every 2 hou
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role key | ✅ |
 | `BSKY_HANDLE`, `BSKY_APP_PASSWORD` | Bluesky login + app password | Recommended |
 | `YOUTUBE_API_KEY` | Free key from the [Google Cloud console](https://console.cloud.google.com/): create a project, enable **YouTube Data API v3**, then **Credentials → Create credentials → API key**. Adds viewers' comments (1 quota unit per 100 comments, 10,000 free a day) | Recommended |
+| `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | Reddit blocks anonymous requests from GitHub servers. Create a free app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (type **script**, any redirect URI); the ID is under the app name, the secret is labelled "secret". Adds posts **and comments** from the Dutch subreddits | Recommended |
 | `X_AUTH_TOKEN`, `X_CT0` | X cookies (DevTools → Application → Cookies → x.com) | Optional |
 
 Then go to **Actions → "Political Media Monitor" → Run workflow** to start the first collection. After that it runs by itself every 2 hours. The sentiment model runs inside GitHub Actions, which is free for public repos, so no Hugging Face key is needed.

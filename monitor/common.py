@@ -147,7 +147,7 @@ class Http:
     def _host(self, url):
         return url.split("/")[2] if "://" in url else url
 
-    def get(self, url, params=None, headers=None, tries=3, as_json=False):
+    def get(self, url, params=None, headers=None, tries=3, as_json=False, timeout=25):
         """Return response text (or parsed JSON), or None when the source is unavailable."""
         import requests
 
@@ -157,7 +157,7 @@ class Http:
         wait = 2
         for attempt in range(tries):
             try:
-                resp = self.session.get(url, params=params, headers=headers, timeout=25)
+                resp = self.session.get(url, params=params, headers=headers, timeout=timeout)
             except requests.RequestException as exc:
                 log.warning("  ! %s unreachable (%s)", url.split("?")[0], type(exc).__name__)
                 break

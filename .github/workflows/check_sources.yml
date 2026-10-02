@@ -21,6 +21,8 @@ jobs:
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}   # optional
       BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}           # optional
       BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
+      REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}           # optional: Reddit API (anonymous Reddit is blocked from GitHub)
+      REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

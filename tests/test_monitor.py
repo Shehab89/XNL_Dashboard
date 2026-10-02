@@ -297,6 +297,9 @@ def test_collect_gdelt_adds_broad_queries(monkeypatch):
         def is_down(self, url):
             return False
 
+        def reset(self, url):
+            pass
+
     cfg = {"gdelt": {"maxrecords": 250, "extra_queries": ["sourcecountry:netherlands kabinet"]}}
     col.collect_gdelt(cfg, FakeHttp(), SINCE, [("PVV", ["PVV", "Wilders"]), ("x", ["ab"])])
     assert [p["query"] for p in asked] == ["(PVV OR Wilders) sourcelang:dutch", "sourcecountry:netherlands kabinet"]
@@ -611,3 +614,20 @@ def test_politicians_and_database_spec(tagger):
     assert all(p["party"] in entities["parties"] for p in entities["politicians"].values())
     ref = pipeline.web_reference(entities)
     assert sum(p["seats"] or 0 for p in ref["parties"]) == 150
+
+
+def test_reddit_listing_parses_posts_and_comments():
+    from datetime import datetime, timezone
+    from monitor.collectors import parse_reddit_listing
+    now = datetime.now(timezone.utc).timestamp()
+    data = {"data": {"children": [
+        {"kind": "t3", "data": {"name": "t3_a", "title": "Wilders wil nieuwe verkiezingen", "selftext": "Wat vinden jullie?",
+                                "subreddit": "thenetherlands", "permalink": "/r/thenetherlands/comments/a/x/", "author": "u1",
+                                "created_utc": now, "score": 12, "num_comments": 4}},
+        {"kind": "t1", "data": {"name": "t1_b", "body": "De PVV doet dit altijd", "link_title": "Wilders wil nieuwe verkiezingen",
+                                "subreddit": "thenetherlands", "permalink": "/r/thenetherlands/comments/a/x/b/", "author": "u2",
+                                "created_utc": now, "score": 3}},
+        {"kind": "t3", "data": {"name": "t3_old", "title": "oud", "created_utc": 0, "subreddit": "x", "permalink": "/"}}]}}
+    items = parse_reddit_listing(data, datetime.fromtimestamp(now - 3600, timezone.utc))
+    assert [i["source"] for i in items] == ["r/thenetherlands", "r/thenetherlands"]
+    assert "Wat vinden jullie" in items[0]["text"] and items[1]["title"].startswith("Re: Wilders")

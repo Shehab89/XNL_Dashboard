@@ -101,6 +101,9 @@ def collect_google_news(cfg, http, since, queries, **_):
 
 # --------------------------------------------------------------------------- GDELT
 
+GDELT = "https://api.gdeltproject.org/api/v2/doc/doc"
+
+
 def parse_gdelt(data):
     items = []
     for a in (data or {}).get("articles", []):
@@ -124,15 +127,20 @@ def collect_gdelt(cfg, http, since, queries, **_):
         return []
     hours = max(1, int((datetime.now(timezone.utc) - since).total_seconds() // 3600))
     all_queries = [q for q in (_gdelt_expr(terms) for _, terms in queries) if q] + gcfg.get("extra_queries", [])
-    items = []
+    items, misses = [], 0
     for query in all_queries:
-        data = http.get("https://api.gdeltproject.org/api/v2/doc/doc", as_json=True, params={
+        data = http.get(GDELT, as_json=True, timeout=60, params={
             "query": query, "mode": "artlist", "format": "json",
             "maxrecords": gcfg.get("maxrecords", 250), "timespan": f"{hours}h", "sort": "datedesc"})
         items += parse_gdelt(data)
-        if http.is_down("https://api.gdeltproject.org"):
+        # GDELT is slow and answers bursts with a plain-text "please limit requests" page: back off, but keep going
+        # unless it fails many times in a row
+        misses = 0 if data is not None else misses + 1
+        if misses >= 6:
+            log.warning("  ! GDELT failed %d times in a row: stopping for this run", misses)
             break
-        time.sleep(5)  # GDELT asks for at most one request every 5 seconds
+        http.reset(GDELT)
+        time.sleep(5 if data is not None else 15)
     return items
 
 
@@ -226,11 +234,60 @@ def collect_mastodon(cfg, http, since, **_):
 
 # --------------------------------------------------------------------------- Reddit
 
+def parse_reddit_listing(data, since):
+    """Posts and comments from a Reddit JSON listing (oauth.reddit.com)."""
+    items = []
+    for child in ((data or {}).get("data") or {}).get("children", []):
+        d, kind = child.get("data") or {}, child.get("kind")
+        published = datetime.fromtimestamp(d.get("created_utc") or 0, timezone.utc)
+        if published < since:
+            continue
+        title = d.get("title") or (d.get("link_title") and f"Re: {d['link_title']}")
+        text = d.get("selftext") if kind == "t3" else d.get("body")
+        items.append(make_item(
+            "reddit", f"r/{d.get('subreddit')}", f"{d.get('title') or ''}. {text or ''}".strip(". "),
+            url=f"https://www.reddit.com{d.get('permalink', '')}", uid=d.get("name") or d.get("id"), title=title,
+            author=d.get("author"), published_at=published.isoformat(), lang="nl", likes=d.get("score"),
+            replies=d.get("num_comments")))
+    return items
+
+
+def _reddit_token(http):
+    """App-only OAuth token (free Reddit "script" app). Reddit blocks anonymous requests from cloud servers such as
+    GitHub Actions, so without REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET only the RSS fallback is tried."""
+    cid, secret = env("REDDIT_CLIENT_ID"), env("REDDIT_CLIENT_SECRET")
+    if not (cid and secret):
+        return None
+    try:
+        resp = http.session.post("https://www.reddit.com/api/v1/access_token", auth=(cid, secret),
+                                 data={"grant_type": "client_credentials"}, timeout=30)
+        return resp.json().get("access_token") if resp.status_code == 200 else None
+    except Exception:
+        return None
+
+
 def collect_reddit(cfg, http, since, queries, **_):
     subs = (cfg.get("reddit") or {}).get("subreddits", [])
     if not subs:
         return []
     joined = "+".join(subs)
+    token = _reddit_token(http)
+    if token:
+        api, headers, items = "https://oauth.reddit.com", {"Authorization": f"bearer {token}"}, []
+        for path in (f"/r/{joined}/new", f"/r/{joined}/comments"):  # newest posts and newest comments, all subs at once
+            after = None
+            for _ in range(5):
+                data = http.get(api + path, headers=headers, as_json=True, params={"limit": 100, **({"after": after} if after else {})})
+                page = parse_reddit_listing(data, since)
+                items += page
+                after = ((data or {}).get("data") or {}).get("after")
+                if not after or len(page) < 50:
+                    break
+        for _label, terms in queries:
+            items += parse_reddit_listing(http.get(api + f"/r/{joined}/search", headers=headers, as_json=True, params={
+                "q": _or(terms), "restrict_sr": 1, "sort": "new", "t": "week", "limit": 100}), since)
+        return items
+    log.info("  reddit: no REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET; trying RSS (often blocked from cloud servers)")
     items = []
     for sub in subs:
         xml = http.get(f"https://www.reddit.com/r/{sub}/new/.rss", params={"limit": 100})

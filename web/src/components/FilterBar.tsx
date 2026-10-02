@@ -4,7 +4,9 @@ import { useFilters, type Preset, type Tone } from "../hooks/useFilters";
 import { useLang } from "../hooks/useLang";
 import { useMonitor } from "../hooks/useMonitor";
 import { PLATFORM_LABEL } from "../i18n/messages";
-import { fmtDate } from "../utils/format";
+import { fmtDate, fmtInt } from "../utils/format";
+
+const PLATFORMS = ["google_news", "news", "gdelt", "mastodon", "bluesky", "reddit", "telegram", "youtube", "youtube_comment", "x"];
 
 /** The site-wide filters: period, tone, source and (on overview pages) one party, topic or person to focus on.
  * Every count, ranking, chart and headline list below follows them. On phones the bar folds into one button. */
@@ -21,6 +23,15 @@ export function FilterBar({ focus = true }: { focus?: boolean }) {
   const pickPreset = (p: Preset) => p === 0
     ? f.set({ preset: 0, from: f.from ?? weeks[Math.max(0, weeks.length - 9)] ?? null, to: f.to ?? weeks[weeks.length - 1] ?? null })
     : f.set({ preset: p });
+  // every platform the collector knows, with its item count in the period, so an empty source is visible as empty
+  const platCounts = new Map<string, number>(PLATFORMS.map((p) => [p, 0]));
+  if (base) {
+    const end = base.partialWeek, start = Math.max(0, end - f.period);
+    for (const [w, p, , n] of base.raw.cube.all) if (w >= start && w < end) {
+      const name = base.plats[p].name;
+      platCounts.set(name, (platCounts.get(name) ?? 0) + n);
+    }
+  }
   const weekOptions = weeks.map((w) => <option key={w} value={w}>{fmtDate(w, lang, "short")}</option>);
 
   return (
@@ -55,9 +66,11 @@ export function FilterBar({ focus = true }: { focus?: boolean }) {
               <option value="all">{t("Alle bronnen", "All sources")}</option>
               <option value="news">{t("Nieuws", "News")}</option>
               <option value="social">{t("Sociale media", "Social media")}</option>
-              {base && <optgroup label={t("Platform", "Platform")}>
-                {base.plats.map((p) => <option key={p.name} value={p.name}>{PLATFORM_LABEL[p.name] ?? p.name}</option>)}
-              </optgroup>}
+              <optgroup label={t("Platform (berichten in de periode)", "Platform (items in the period)")}>
+                {[...platCounts].map(([name, n]) => (
+                  <option key={name} value={name}>{PLATFORM_LABEL[name] ?? name} ({n ? fmtInt(n, lang) : t("nog geen data", "no data yet")})</option>
+                ))}
+              </optgroup>
             </select>
           </div>
           {focus && base && (
