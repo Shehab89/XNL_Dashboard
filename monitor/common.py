@@ -2,6 +2,7 @@
 
 import hashlib
 import html
+import json
 import logging
 import os
 import random
@@ -164,16 +165,17 @@ class Http:
             if resp.status_code == 200:
                 self.failures[host] = 0
                 time.sleep(self.pause + random.uniform(0, self.jitter))
-                try:
-                    return resp.json() if as_json else resp.text
-                except ValueError:
-                    log.warning("  ! %s returned invalid JSON", url.split("?")[0])
-                    return None
+                return self._decode(resp.text, url, as_json)
             if resp.status_code in (404, 410):  # a wrong address, not a blocked host: try its other pages
                 log.warning("  ! %s not found (HTTP %s)", url.split("?")[0], resp.status_code)
                 return None
             if resp.status_code not in (429, 500, 502, 503, 504):
                 log.warning("  ! %s answered HTTP %s", url.split("?")[0], resp.status_code)
+                if resp.status_code in (401, 403, 406, 451):  # refused: try once more looking like Chrome
+                    text = self._stealth_get(url, params, headers, timeout)
+                    if text is not None:
+                        self.failures[host] = 0
+                        return self._decode(text, url, as_json)
                 break
             if attempt < tries - 1:
                 retry_after = resp.headers.get("Retry-After", "")
@@ -183,6 +185,37 @@ class Http:
         if self.failures[host] == 3:
             log.warning("  ! %s failed 3 times in a row: skipping it for this run", host)
         return None
+
+    @staticmethod
+    def _decode(text, url, as_json):
+        if not as_json:
+            return text
+        try:
+            return json.loads(text)
+        except ValueError:
+            log.warning("  ! %s returned invalid JSON", url.split("?")[0])
+            return None
+
+    def _stealth_get(self, url, params, headers, timeout):
+        """One retry through Scrapling's Fetcher, which copies Chrome's TLS fingerprint and headers.
+
+        Many news sites and feeds refuse plain Python requests but serve a browser. None when Scrapling is not
+        installed or the site still refuses."""
+        try:
+            from scrapling.fetchers import Fetcher
+        except ImportError:
+            return None
+        try:
+            resp = Fetcher.get(url, params=params, headers=headers, timeout=timeout, impersonate="chrome",
+                               stealthy_headers=True, retries=1)
+        except Exception as exc:  # network errors, a Scrapling change: the plain result stands
+            log.warning("  ! %s also refused the Chrome-like retry (%s)", url.split("?")[0], type(exc).__name__)
+            return None
+        if resp.status != 200:
+            log.warning("  ! %s also refused the Chrome-like retry (HTTP %s)", url.split("?")[0], resp.status)
+            return None
+        log.info("  %s worked with the Chrome-like retry", url.split("?")[0])
+        return resp.body.decode(resp.encoding or "utf-8", "replace") if isinstance(resp.body, bytes) else str(resp.body)
 
     def is_down(self, url):
         return self.failures.get(self._host(url), 0) >= 3

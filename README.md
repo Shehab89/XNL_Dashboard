@@ -28,13 +28,13 @@ Every 2 hours the monitor collects political news articles and public social-med
 | 💬 Social | **YouTube** (~60 channels: broadcasters, talk shows, parties, regional) | Channel RSS feeds | No |
 | 💬 Social | **YouTube comments** *(optional)* | YouTube Data API v3: newest comments on the newest videos | Free API key (`YOUTUBE_API_KEY`) |
 | 💬 Social | **X / Twitter: accounts** | Recent posts of ~35 politicians, parties and newsrooms via X's public embed service | No |
-| 💬 Social | **X / Twitter: search** *(optional)* | Browser scraper with your login cookies, run on your own computer (see below) | Your X account ⚠️ |
+| 💬 Social | **X / Twitter: search** *(optional)* | [twitter-cli](https://github.com/public-clis/twitter-cli) on X's own web API, plus a [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) browser scraper as backup, both with your login cookies | Your X account ⚠️ |
 
-All sources are set in [`config/sources.yaml`](config/sources.yaml). Add or remove outlets, subreddits, hashtags, Telegram channels or YouTube channels there. If one source is down, the others still run. To see which feeds work, run **Actions → "Check sources" → Run workflow** (or `python -m monitor.pipeline probe`): it lists the items per feed/channel for the last 24 hours and every failed URL, without storing anything.
+All sources are set in [`config/sources.yaml`](config/sources.yaml). Add or remove outlets, subreddits, hashtags, Telegram channels or YouTube channels there. If one source is down, the others still run. When a site refuses a request, the collectors retry it once through [Scrapling](https://github.com/D4Vinci/Scrapling), which looks like Chrome to the site. A YouTube handle that does not exist is replaced by the first channel YouTube's search finds for its name. To see which feeds work, run **Actions → "Check sources" → Run workflow** (or `python -m monitor.pipeline probe`): it lists the items per feed/channel for the last 24 hours and every failed URL, without storing anything.
 
 > ⚠️ **About X:** X has no free API. Two free routes are built in:
 > 1. **Accounts (automatic, in the cloud).** `x_profiles` in `config/sources.yaml` reads the latest posts of the listed accounts through the same public service that powers embedded X timelines on news sites. No login, but accounts only, not search, and X may throttle it.
-> 2. **Search (on your own computer).** X shows every search from cloud servers a "please wait" wall, so the search scraper must run from a home connection. It logs in with your browser cookies, which is against X's terms and can get the account locked, so use a secondary account.
+> 2. **Search (logged in).** `x_search` runs [twitter-cli](https://github.com/public-clis/twitter-cli), which calls X's own web API with your cookies, without a browser. As a backup the pipeline also opens a real Chrome window (patchright, a stealth Playwright) on a virtual screen and searches X like a person. X puts GitHub's servers behind a Cloudflare bot check, so both run from your own computer (below); set the repository variable `X_IN_CLOUD` to `true` to try the browser in the cloud anyway. It logs in with your browser cookies, which is against X's terms and can get the account locked, so use a secondary account.
 >
 > **X on your own computer (free, about 10 minutes once):**
 > 1. Install [Node.js 22](https://nodejs.org) and [Python 3.11+](https://www.python.org) on a computer that is often on.
@@ -95,7 +95,7 @@ The full setup uses three free services: **GitHub Actions** collects every 2 hou
 | `BSKY_HANDLE`, `BSKY_APP_PASSWORD` | Bluesky login + app password | Recommended |
 | `YOUTUBE_API_KEY` | Free key from the [Google Cloud console](https://console.cloud.google.com/): create a project, enable **YouTube Data API v3**, then **Credentials → Create credentials → API key**. Adds viewers' comments (1 quota unit per 100 comments, 10,000 free a day) | Recommended |
 | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | Reddit blocks anonymous requests from GitHub servers. Create a free app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (type **script**, any redirect URI); the ID is under the app name, the secret is labelled "secret". Adds posts **and comments** from the Dutch subreddits | Recommended |
-| `X_AUTH_TOKEN`, `X_CT0` | X cookies (DevTools → Application → Cookies → x.com) (used by the home runner, see "X on your own computer") | Optional |
+| `X_AUTH_TOKEN`, `X_CT0` | X cookies (DevTools → Application → Cookies → x.com) (X search in the pipeline and on the home runner) | Optional |
 
 Then go to **Actions → "Political Media Monitor" → Run workflow** to start the first collection. After that it runs by itself every 2 hours. The sentiment model runs inside GitHub Actions, which is free for public repos, so no Hugging Face key is needed.
 
