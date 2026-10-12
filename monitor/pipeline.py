@@ -86,15 +86,17 @@ def run(only=None, hours=None, backend=None, retention_days=400, extra_json=None
 
     saved = store.upsert(items)
     log.info("Saved %d items to %s", saved, store.name)
-    if backend in (None, "", "llm"):
-        relabel_backlog(store, entities, int(env("LLM_BACKLOG", "1500")))
     try:
         log.info("Removed %d duplicate items", store.remove_duplicates())
     except Exception as exc:  # e.g. the database function is not installed yet (database/schema.sql)
         log.warning("Duplicate removal skipped: %s", str(exc)[:200])
     if retention_days:
         store.prune(retention_days)
+    # rebuild the website first: relabelling older items is optional and must not keep new data off the site
     publish(store, entities)
+    if backend in (None, "", "llm"):
+        relabel_backlog(store, entities, int(env("LLM_BACKLOG", "1500")))
+        publish(store, entities)
 
     empty = [name for name, n in report.items() if n == 0]
     if empty:

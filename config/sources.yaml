@@ -94,6 +94,7 @@ google_news:
 gdelt:
   enabled: true
   maxrecords: 250
+  max_minutes: 6        # GDELT is often slow or down; stop after this long
   extra_queries:
     - 'sourcecountry:netherlands (kabinet OR minister OR "Tweede Kamer" OR coalitie OR oppositie)'
     - 'sourcecountry:netherlands (asiel OR migratie OR stikstof OR huur OR koopkracht OR zorg)'
