@@ -225,12 +225,14 @@ def classify(items, parties, issues, client=None, model=None):
     batches = [items[i:i + size] for i in range(0, len(items), size)]
     current = {"n": 0}
     lock = threading.Lock()
+    # time budget: a slow model must not push the run past the job's timeout; late batches use the fallback
+    deadline = time.time() + 60 * float(env("LLM_MAX_MINUTES", "12"))
 
     def work(batch):
         while True:
             with lock:
                 n = current["n"]
-            if n >= len(models):
+            if n >= len(models) or time.time() > deadline:
                 return [None] * len(batch)
             try:
                 return _classify_batch(client, models[n], batch, parties, issues)

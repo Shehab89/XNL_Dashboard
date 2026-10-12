@@ -156,14 +156,20 @@ def collect_gdelt(cfg, http, since, queries, **_):
     hours = max(1, int((datetime.now(timezone.utc) - since).total_seconds() // 3600))
     all_queries = [q for q in (_gdelt_expr(terms) for _, terms in queries) if q] + gcfg.get("extra_queries", [])
     items, misses = [], 0
+    # GDELT is often slow or down; a hard budget keeps it from eating the whole job (once took 32 min for 0 items)
+    deadline = time.time() + 60 * gcfg.get("max_minutes", 6)
     for query in all_queries:
+        if time.time() > deadline:
+            log.warning("  ! GDELT time budget used up: stopping with %d items", len(items))
+            break
         data = http.get(GDELT, as_json=True, timeout=60, params={
             "query": query, "mode": "artlist", "format": "json",
             "maxrecords": gcfg.get("maxrecords", 250), "timespan": f"{hours}h", "sort": "datedesc"})
-        items += parse_gdelt(data)
+        found = parse_gdelt(data)
+        items += found
         # GDELT is slow and answers bursts with a plain-text "please limit requests" page: back off, but keep going
-        # unless it fails many times in a row
-        misses = 0 if data is not None else misses + 1
+        # unless it fails or comes back empty many times in a row
+        misses = 0 if found else misses + 1
         if misses >= 6:
             log.warning("  ! GDELT failed %d times in a row: stopping for this run", misses)
             break
